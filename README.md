@@ -5,24 +5,21 @@ A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF
 <img width="518" height="222" alt="MFNVR" src="https://github.com/user-attachments/assets/d5604352-5471-4290-8fdf-664fc0fa065d" />
 
 
-I know this sounds suspicious but for now there isn't any source code and there wont be until August 11th as I ran out of codex usage as it was getting the source code ready.
-
-# Known Issues
-- Using the toolbox doesn't work properly and is very broken. (Using the inventory works fine)
-
 # Requirements
 
 - My Friendly Neighborhood on Steam.
 - A Windows computer.
 - SteamVR or Oculus-compatible headset.
 
-# Install
+## Installation
 
-- In Steam, open MFN > Manage > Browse local files.
-- Copy all files from the provided zip into the My Friendly Neighborhood folder.
-- Make sure either Oculus app or SteamVR is the active OpenXR runtime, Others are untested.
-- Open Steam, press play and put on your VR headset.
-- It is highly recommended to set FOV to about 100.
+1. Download `MFNVR-v0.2.0.zip` from the GitHub release.
+2. In Steam, right-click *My Friendly Neighborhood*, select **Manage > Browse local files**, and close the game.
+3. Extract the contents of the ZIP directly into the game's root folder. The `BepInEx` folder in the archive should end up beside `My Friendly Neighborhood.exe`.
+4. Select the OpenXR runtime you want to use:
+   - **Oculus/Meta:** set Meta Quest Link as the active OpenXR runtime in the Meta PC app.
+   - **SteamVR:** set SteamVR as the active OpenXR runtime in SteamVR settings.
+5. Connect and wake the headset and controllers, then launch the game through Steam.
   
 
 

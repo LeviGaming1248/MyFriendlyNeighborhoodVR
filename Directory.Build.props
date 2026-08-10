@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <MFNManagedDir>$(MFNGameDir)\My Friendly Neighborhood_Data\Managed</MFNManagedDir>
+    <BepInExCoreDir>$(MFNGameDir)\BepInEx\core</BepInExCoreDir>
+  </PropertyGroup>
+
+  <Target Name="ValidateGameDirectory" BeforeTargets="ResolveReferences"
+          Condition="'$(MFNVRManagedProject)' == 'true'">
+    <Error Condition="'$(MFNGameDir)' == ''"
+           Text="Set MFNGameDir to your My Friendly Neighborhood installation directory." />
+    <Error Condition="!Exists('$(MFNManagedDir)\Assembly-CSharp.dll')"
+           Text="Assembly-CSharp.dll was not found. MFNGameDir must point to the game installation directory." />
+    <Error Condition="!Exists('$(BepInExCoreDir)\BepInEx.dll')"
+           Text="BepInEx.dll was not found. Install BepInEx 5 in the game before building MFNVR." />
+  </Target>
+</Project>

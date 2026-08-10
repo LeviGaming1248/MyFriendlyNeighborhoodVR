@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="MFNVR.Config.csproj" />
+  <Project Path="MFNVR.Core.csproj" />
+  <Project Path="MFNVR.RenderBridge.csproj" />
+</Solution>

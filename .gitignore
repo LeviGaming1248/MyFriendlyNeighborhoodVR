@@ -1,0 +1,12 @@
+.vs/
+artifacts/
+bin/
+obj/
+native/build/
+.dotnet/
+*.user
+*.suo
+*.log
+*.zip
+MFNVR.LeftHandCalibration.cfg
+MFNVR.LeftHandRotation.cfg
