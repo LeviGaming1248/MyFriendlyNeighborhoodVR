@@ -1,4 +1,4 @@
-/># MFNVR
+# MFNVR
 
 A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking and motion controller support to the game.
 
