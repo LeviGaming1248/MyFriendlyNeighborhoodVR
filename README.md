@@ -1,4 +1,4 @@
-# MFNVR
+<img width="1536" height="1536" alt="MetaScreenshot1786477061" src="https://github.com/user-attachments/assets/afeafb80-23c4-4111-b856-11cc540512d6" /># MFNVR
 
 A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking and motion controller support to the game.
 
@@ -20,6 +20,10 @@ A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF
    - **Oculus/Meta:** set Meta Quest Link as the active OpenXR runtime in the Meta PC app.
    - **SteamVR:** set SteamVR as the active OpenXR runtime in SteamVR settings.
 5. Connect and wake the headset and controllers, then launch the game through Steam.
+
+
+# Config file
+To edit VR mods config go to the games root folder ** > BepInEx > config ** and edit the MFNVR.cfg file.
   
 
 
@@ -34,14 +38,13 @@ A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF
 | Two-handed weapon gripping |
 | Independent floating VR hands |
 | Physical wrench melee |
+| Physical weapon switching |
 | VR-compatible HUD and menus |
-| OpenXR support, currently developed and tested using Oculus Rift S
+| OpenXR support, currently developed and tested using Oculus Rift S |
 
 # Planned Features
 
 
-
-- Fixed toolbox interaction.
 - Improved weapon handling.
 - Better menu interactions.
 - Possibly manual reloading.
