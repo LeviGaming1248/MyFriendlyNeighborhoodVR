@@ -27,6 +27,8 @@ To edit VR mods config go to the games root folder ** > BepInEx > config ** and 
   
 
 
+
+
 | Current Features |
 | --- |
 | Support for playing through the full game |
