@@ -28,6 +28,7 @@ namespace MFNVRBridge
         private static float menuScale = 1f;
         private static bool flatScreensOnlyForMainPauseAndFiles = true;
         private static bool interactionCameraMovement;
+        private static float playerHeightOffset;
         private static bool physicalWeaponSwitching = true;
         private static bool menuPointerEnabled = true;
         // Keep the complete implementation compiled in, but gate it off until its
@@ -62,7 +63,7 @@ namespace MFNVRBridge
         private static int settingsMenuHoveredOption = -1;
         private static int settingsMenuDraggingOption = -1;
         private static bool settingsMenuCloseHovered;
-        private static readonly float[] settingsMenuValues = new float[19];
+        private static readonly float[] settingsMenuValues = new float[20];
         private static readonly System.Drawing.StringFormat SettingsCenteredFormat =
             new System.Drawing.StringFormat
             {
@@ -117,7 +118,8 @@ namespace MFNVRBridge
             new SettingsMenuOption { Label = "Smooth Turning", Description = "ON: smooth turning   OFF: snap turning", Category = 3, Toggle = true },
             new SettingsMenuOption { Label = "Snap Turn Angle", Category = 3, Minimum = 15f, Maximum = 90f },
             new SettingsMenuOption { Label = "Smooth Turn Speed", Category = 3, Minimum = 30f, Maximum = 360f },
-            new SettingsMenuOption { Label = "Physical Weapon Switching", Description = "Switch weapons with dominant-grip hip and shoulder holsters", Category = 4, Toggle = true }
+            new SettingsMenuOption { Label = "Physical Weapon Switching", Description = "Switch weapons with dominant-grip hip and shoulder holsters", Category = 4, Toggle = true },
+            new SettingsMenuOption { Label = "Player Height", Description = "Vertical height adjustment in metres", Category = 3, Minimum = -1f, Maximum = 1f }
         };
 
         private static readonly string[] SettingsMenuConfigSections =
@@ -125,7 +127,7 @@ namespace MFNVRBridge
             "Rendering", "Rendering", "Rendering", "Rendering",
             "Crosshair", "Crosshair", "Crosshair",
             "HUD", "HUD", "HUD", "MainMenu", "MainMenu", "UI", "UI",
-            "Camera", "Turning", "Turning", "Turning", "Controls"
+            "Camera", "Turning", "Turning", "Turning", "Controls", "Player"
         };
 
         private static readonly string[] SettingsMenuConfigKeys =
@@ -135,13 +137,13 @@ namespace MFNVRBridge
             "Distance", "Scale", "HeightOffset", "Distance", "Scale",
             "UIScreens", "MenuPointer", "InteractionCameraMovement",
             "SmoothTurning", "SnapAngle", "SmoothTurnSpeed",
-            "PhysicalWeaponSwitching"
+            "PhysicalWeaponSwitching", "HeightOffset"
         };
 
         private static readonly float[] SettingsMenuDefaults =
         {
             1f, 0f, 0.7f, 80f, 1f, 1.08f, 0.011f, 1000f, 0.78f, 0f,
-            10f, 1f, 1f, 1f, 0f, 0f, 30f, 90f, 1f
+            10f, 1f, 1f, 1f, 0f, 0f, 30f, 90f, 1f, 0f
         };
 
         private static Camera menuSource;
@@ -518,6 +520,11 @@ namespace MFNVRBridge
             interactionCameraMovement = allowMovement;
             if (allowMovement)
                 interactionRigLocked = false;
+        }
+
+        public static void ApplyPlayerHeightSettings(float heightOffset)
+        {
+            playerHeightOffset = Mathf.Clamp(heightOffset, -1f, 1f);
         }
 
         internal static void BeginInteractionCameraLock()
@@ -971,11 +978,11 @@ namespace MFNVRBridge
             if (!physicalInventoryActive && !uiModeActive && !IsCutsceneActive() &&
                 hasOrigin && useRig)
             {
-                lastGameplayRigPosition = rigPosition;
+                lastGameplayRigPosition = rigPosition + Vector3.up * playerHeightOffset;
                 lastGameplayRigRotation = rigRotation;
                 haveLastGameplayRig = true;
             }
-            motionRigPosition = rigPosition;
+            motionRigPosition = rigPosition + Vector3.up * playerHeightOffset;
             motionRigRotation = rigRotation;
             var menuPointerContext = IsNativeMenuPointerContext(player, inventory);
             motionContextValid = player != null && hasOrigin &&
@@ -6103,6 +6110,12 @@ namespace MFNVRBridge
             bool coreUsingComfortRig)
         {
             ApplyCutscenePositionFollow(source, left, right, coreUsingComfortRig);
+            if (coreUsingComfortRig && Mathf.Abs(playerHeightOffset) > 0.0001f)
+            {
+                var heightShift = Vector3.up * playerHeightOffset;
+                left.transform.position += heightShift;
+                right.transform.position += heightShift;
+            }
             // Capture the exact Rift matrices and physical eye offsets before configuring
             // any head-locked overlay. This keeps overlay geometry undistorted after the
             // OpenXR compositor applies the headset lens warp.
@@ -6841,6 +6854,7 @@ namespace MFNVRBridge
             ApplyMenuPointerSettings(settingsMenuValues[13] >= 0.5f);
             ApplyInteractionCameraSettings(settingsMenuValues[14] >= 0.5f);
             ApplyPhysicalWeaponSwitchingSettings(settingsMenuValues[18] >= 0.5f);
+            ApplyPlayerHeightSettings(settingsMenuValues[19]);
             ApplyLeftHandedSettings(false);
         }
 

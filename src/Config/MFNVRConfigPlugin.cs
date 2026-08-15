@@ -43,6 +43,7 @@ namespace MFNVRConfig
         private ConfigEntry<float> menuScale;
         private ConfigEntry<bool> flatScreensOnlyForMainPauseAndFiles;
         private ConfigEntry<bool> interactionCameraMovement;
+        private ConfigEntry<float> playerHeightOffset;
         private ConfigEntry<bool> menuPointer;
         private ConfigEntry<bool> physicalWeaponSwitching;
         private ConfigEntry<bool> smoothTurning;
@@ -52,6 +53,7 @@ namespace MFNVRConfig
         private MethodInfo applyBridgeSettings;
         private MethodInfo applyUiScreenSettings;
         private MethodInfo applyInteractionCameraSettings;
+        private MethodInfo applyPlayerHeightSettings;
         private MethodInfo applyMenuPointerSettings;
         private MethodInfo applyPhysicalWeaponSwitchingSettings;
         private MethodInfo applyLeftHandedSettings;
@@ -165,6 +167,9 @@ namespace MFNVRConfig
                 "When true, only the main menu, pause menu, and Files menu use a flat VR screen. Other interfaces use MFN's real camera position. Set false to use flat screens for every non-gameplay interface.");
             interactionCameraMovement = settings.Bind("Camera", "InteractionCameraMovement", false,
                 "Allow MFN to move the VR camera during interaction menus. Cutscenes and toolbox views always retain their authored camera movement.");
+            playerHeightOffset = settings.Bind("Player", "HeightOffset", 0f,
+                new ConfigDescription("Vertical player-height adjustment in metres. Positive values make the player taller and negative values make the player shorter.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
             menuPointer = settings.Bind("UI", "MenuPointer", true,
                 "Show a tracked dominant-hand pointer in inventory, toolboxes, and interaction menus. The dominant trigger selects or picks up/places items; dominant-stick click rotates held inventory items.");
             physicalWeaponSwitching = settings.Bind("Controls", "PhysicalWeaponSwitching", true,
@@ -325,6 +330,8 @@ namespace MFNVRConfig
             applyInteractionCameraSettings = applyInteractionCameraSettings ??
                 bridge?.GetMethod("ApplyInteractionCameraSettings",
                     BindingFlags.Static | BindingFlags.Public);
+            applyPlayerHeightSettings = applyPlayerHeightSettings ?? bridge?.GetMethod(
+                "ApplyPlayerHeightSettings", BindingFlags.Static | BindingFlags.Public);
             applyMenuPointerSettings = applyMenuPointerSettings ?? bridge?.GetMethod(
                 "ApplyMenuPointerSettings", BindingFlags.Static | BindingFlags.Public);
             applyPhysicalWeaponSwitchingSettings = applyPhysicalWeaponSwitchingSettings ??
@@ -334,6 +341,7 @@ namespace MFNVRConfig
                 "ApplyLeftHandedSettings", BindingFlags.Static | BindingFlags.Public);
             if (applyBridgeSettings == null || applyUiScreenSettings == null ||
                 applyInteractionCameraSettings == null ||
+                applyPlayerHeightSettings == null ||
                 applyMenuPointerSettings == null ||
                 applyPhysicalWeaponSwitchingSettings == null ||
                 applyLeftHandedSettings == null)
@@ -352,6 +360,7 @@ namespace MFNVRConfig
             {
                 interactionCameraMovement.Value
             });
+            applyPlayerHeightSettings.Invoke(null, new object[] { playerHeightOffset.Value });
             applyMenuPointerSettings.Invoke(null, new object[] { menuPointer.Value });
             applyPhysicalWeaponSwitchingSettings.Invoke(null, new object[]
             {
@@ -473,7 +482,7 @@ namespace MFNVRConfig
         public static bool GetVrSettingsMenuValues(float[] values)
         {
             var plugin = instance;
-            if (plugin == null || values == null || values.Length < 19)
+            if (plugin == null || values == null || values.Length < 20)
                 return false;
             // The captured menu is also the user's live config editor. Always refresh
             // from the real BepInEx config file when the menu opens so hand edits made
@@ -505,6 +514,7 @@ namespace MFNVRConfig
             values[16] = plugin.snapAngle.Value;
             values[17] = plugin.smoothSpeed.Value;
             values[18] = plugin.physicalWeaponSwitching.Value ? 1f : 0f;
+            values[19] = plugin.playerHeightOffset.Value;
             return true;
         }
 
@@ -535,6 +545,7 @@ namespace MFNVRConfig
                 case 16: entry = plugin.snapAngle; entry.BoxedValue = Mathf.Clamp(value, 15f, 90f); break;
                 case 17: entry = plugin.smoothSpeed; entry.BoxedValue = Mathf.Clamp(value, 30f, 360f); break;
                 case 18: entry = plugin.physicalWeaponSwitching; entry.BoxedValue = value >= 0.5f; break;
+                case 19: entry = plugin.playerHeightOffset; entry.BoxedValue = Mathf.Clamp(value, -1f, 1f); break;
                 default: return false;
             }
             plugin.CommitExternalSettingsChange(entry);
@@ -846,6 +857,7 @@ namespace MFNVRConfig
             AddVrToggle(2, "Menu Pointer", menuPointer);
 
             AddVrToggle(3, "Interaction Camera Movement", interactionCameraMovement);
+            AddVrSlider(3, "Player Height", playerHeightOffset, -1f, 1f);
             AddVrToggle(3, "Smooth Turning", smoothTurning);
             AddVrSlider(3, "Snap Turn Angle", snapAngle, 15f, 90f);
             AddVrSlider(3, "Smooth Turn Speed", smoothSpeed, 30f, 360f);
