@@ -30,10 +30,123 @@ namespace MFNVRBridge
         private static bool interactionCameraMovement;
         private static bool physicalWeaponSwitching = true;
         private static bool menuPointerEnabled = true;
+        // Keep the complete implementation compiled in, but gate it off until its
+        // weapon transforms and trigger routing are ready for a future release.
+        private const bool LeftHandedModeAvailable = false;
+        private static bool leftHandedMode;
+        private static int DominantHandIndex => leftHandedMode ? 0 : 1;
+        private static int SupportHandIndex => leftHandedMode ? 1 : 0;
+        private static bool settingsMenuOpen;
+        private static bool settingsMenuPausedTime;
+        private static float settingsMenuPreviousTimeScale = 1f;
+        private static int settingsMenuGestureFrame = -1;
+        private static float settingsMenuGestureHoldStarted = -1f;
+        private static bool settingsMenuGestureTriggered;
+        private static bool settingsMenuToggleRequested;
+        private static bool settingsMenuGestureInputLogged;
         private static int settingsRevision;
         private static int menuSettingsRevision = -1;
+        private const float MenuSettingsButtonMinU = 0.735f;
+        private const float MenuSettingsButtonMaxU = 0.965f;
+        private const float MenuSettingsButtonMinV = 0.035f;
+        private const float MenuSettingsButtonMaxV = 0.125f;
+        private static Texture2D menuSettingsButtonTexture;
+        private static Texture2D menuSettingsButtonHoverTexture;
+        private static bool menuSettingsButtonHovered;
+        private static bool menuSettingsButtonVisible;
+        private static bool menuSettingsButtonWarningLogged;
+        private static Texture2D settingsMenuTexture;
+        private static bool settingsMenuTextureDirty = true;
+        private static int settingsMenuCategory;
+        private static int settingsMenuHoveredTab = -1;
+        private static int settingsMenuHoveredOption = -1;
+        private static int settingsMenuDraggingOption = -1;
+        private static bool settingsMenuCloseHovered;
+        private static readonly float[] settingsMenuValues = new float[19];
+        private static readonly System.Drawing.StringFormat SettingsCenteredFormat =
+            new System.Drawing.StringFormat
+            {
+                Alignment = System.Drawing.StringAlignment.Center,
+                LineAlignment = System.Drawing.StringAlignment.Center
+            };
+        private static MethodInfo getSettingsMenuValuesMethod;
+        private static MethodInfo setSettingsMenuValueMethod;
+        private static Func<float[], bool> settingsMenuValueReader;
+        private static Func<int, float, bool> settingsMenuValueWriter;
+        private static Action<bool> settingsMenuVisibilityChanged;
+        private static bool settingsMenuProviderWarningLogged;
+        private const float SettingsPanelMinU = 0.10f;
+        private const float SettingsPanelMaxU = 0.90f;
+        private const float SettingsPanelMinV = 0.08f;
+        private const float SettingsPanelMaxV = 0.92f;
+
+        private sealed class SettingsMenuOption
+        {
+            public string Label;
+            public string Description;
+            public bool DescriptionIsWarning;
+            public int Category;
+            public bool Toggle;
+            public float Minimum;
+            public float Maximum;
+            public bool Logarithmic;
+        }
+
+        private static readonly string[] SettingsMenuCategories =
+        {
+            "Rendering", "Crosshair", "UI", "Camera & Turning", "Controls"
+        };
+
+        private static readonly SettingsMenuOption[] SettingsMenuOptions =
+        {
+            new SettingsMenuOption { Label = "Resolution Scale", Description = "Restart required", DescriptionIsWarning = true, Category = 0, Minimum = 0.5f, Maximum = 1.5f },
+            new SettingsMenuOption { Label = "Dynamic Resolution", Description = "Automatically adjusts render resolution - restart required", DescriptionIsWarning = true, Category = 0, Toggle = true },
+            new SettingsMenuOption { Label = "Dynamic Minimum Scale", Description = "Lowest scale Dynamic Resolution is allowed to use", Category = 0, Minimum = 0.5f, Maximum = 1.5f },
+            new SettingsMenuOption { Label = "Dynamic Target FPS", Description = "Performance target used by Dynamic Resolution", Category = 0, Minimum = 45f, Maximum = 144f },
+            new SettingsMenuOption { Label = "Crosshair Enabled", Category = 1, Toggle = true },
+            new SettingsMenuOption { Label = "Crosshair Distance", Category = 1, Minimum = 0.25f, Maximum = 10f },
+            new SettingsMenuOption { Label = "Crosshair Size", Category = 1, Minimum = 0.002f, Maximum = 0.05f },
+            new SettingsMenuOption { Label = "HUD Distance", Category = 2, Minimum = 0.5f, Maximum = 1000f, Logarithmic = true },
+            new SettingsMenuOption { Label = "HUD Scale", Category = 2, Minimum = 0.25f, Maximum = 2f },
+            new SettingsMenuOption { Label = "HUD Height Offset", Category = 2, Minimum = -2f, Maximum = 2f },
+            new SettingsMenuOption { Label = "Menu Distance", Category = 2, Minimum = 1f, Maximum = 20f },
+            new SettingsMenuOption { Label = "Menu Scale", Category = 2, Minimum = 0.25f, Maximum = 2f },
+            new SettingsMenuOption { Label = "UI Screens", Description = "ON: flat screens are used only for Main, Pause, and Files", Category = 2, Toggle = true },
+            new SettingsMenuOption { Label = "Menu Pointer", Description = "Use the tracked dominant-hand pointer in menus and interactions", Category = 2, Toggle = true },
+            new SettingsMenuOption { Label = "Interaction Camera Movement", Description = "Allow MFN to reposition your view in interaction menus", Category = 3, Toggle = true },
+            new SettingsMenuOption { Label = "Smooth Turning", Description = "ON: smooth turning   OFF: snap turning", Category = 3, Toggle = true },
+            new SettingsMenuOption { Label = "Snap Turn Angle", Category = 3, Minimum = 15f, Maximum = 90f },
+            new SettingsMenuOption { Label = "Smooth Turn Speed", Category = 3, Minimum = 30f, Maximum = 360f },
+            new SettingsMenuOption { Label = "Physical Weapon Switching", Description = "Switch weapons with dominant-grip hip and shoulder holsters", Category = 4, Toggle = true }
+        };
+
+        private static readonly string[] SettingsMenuConfigSections =
+        {
+            "Rendering", "Rendering", "Rendering", "Rendering",
+            "Crosshair", "Crosshair", "Crosshair",
+            "HUD", "HUD", "HUD", "MainMenu", "MainMenu", "UI", "UI",
+            "Camera", "Turning", "Turning", "Turning", "Controls"
+        };
+
+        private static readonly string[] SettingsMenuConfigKeys =
+        {
+            "ResolutionScale", "DynamicResolution", "DynamicResolutionMinScale",
+            "DynamicResolutionTargetFPS", "Enabled", "Distance", "Size",
+            "Distance", "Scale", "HeightOffset", "Distance", "Scale",
+            "UIScreens", "MenuPointer", "InteractionCameraMovement",
+            "SmoothTurning", "SnapAngle", "SmoothTurnSpeed",
+            "PhysicalWeaponSwitching"
+        };
+
+        private static readonly float[] SettingsMenuDefaults =
+        {
+            1f, 0f, 0.7f, 80f, 1f, 1.08f, 0.011f, 1000f, 0.78f, 0f,
+            10f, 1f, 1f, 1f, 0f, 0f, 30f, 90f, 1f
+        };
 
         private static Camera menuSource;
+        private static Camera lastMenuLeftEye;
+        private static Camera lastMenuRightEye;
         private static RenderTexture menuCapture;
         private static GameObject menuScreen;
         private static Material menuMaterial;
@@ -52,6 +165,10 @@ namespace MFNVRBridge
         private static Quaternion worldRightEyeRotation;
         private static readonly HashSet<int> filteredItems = new HashSet<int>();
         private static readonly Dictionary<int, Camera> camerasWithRenderEffectsEnabled =
+            new Dictionary<int, Camera>();
+        private static readonly Dictionary<int, Camera> sourceBackbufferOptimizers =
+            new Dictionary<int, Camera>();
+        private static readonly Dictionary<int, Camera> menuEyesWithEffectsDisabled =
             new Dictionary<int, Camera>();
 
         private static readonly FieldInfo currentlyHoldingField = typeof(EquippedManager).GetField(
@@ -82,6 +199,8 @@ namespace MFNVRBridge
             typeof(Player), "pauseMenuEnabled");
         private static readonly FieldInfo investigateControlsEnabledField = AccessTools.Field(
             typeof(Player), "investigateControlsEnabled");
+        private static readonly FieldInfo noteReadoutVisibleField = AccessTools.Field(
+            typeof(NoteReadoutInWorld), "isVisible");
         private static readonly FieldInfo isOnMainMenuField = AccessTools.Field(
             typeof(Player), "isOnMainMenu");
         private static readonly FieldInfo isBackToMenuSceneField = AccessTools.Field(
@@ -128,14 +247,31 @@ namespace MFNVRBridge
             typeof(ItemBoxSetToInventory), "isDrawer");
         private static readonly FieldInfo itemBoxSectionParentField = AccessTools.Field(
             typeof(ItemBoxSetToInventory), "myItemParent");
-        private static readonly MethodInfo getReachDistanceMethod = typeof(Player).GetMethod(
-            "GetReachDistance", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo menuSelectionBarNubField = AccessTools.Field(
+            typeof(Menus.MenuSelectionBar), "nub");
+        private static readonly FieldInfo menuBarNubPickedUpField = AccessTools.Field(
+            typeof(Menus.MenuBarNub), "pickedUp");
+        private static readonly FieldInfo menuBarNubLeftExtentField = AccessTools.Field(
+            typeof(Menus.MenuBarNub), "leftExtent");
+        private static readonly FieldInfo menuBarNubRightExtentField = AccessTools.Field(
+            typeof(Menus.MenuBarNub), "rightExtent");
+        private static readonly FieldInfo equippedItemsField = AccessTools.Field(
+            typeof(EquippedManager), "items");
         private static EquippedManager motionManager;
         private static ItemInHand motionItem;
+        private static bool motionItemIsEmptyHandRig;
+        private static Renderer[] motionItemRenderers = new Renderer[0];
+        private static MeshRenderer[] motionItemMeshRenderers = new MeshRenderer[0];
         private static Transform motionAnchor;
         private static Transform rightWrist;
         private static Transform leftHandRoot;
         private static Transform leftWrist;
+        private static Transform mirroredDominantWrist;
+        private static Vector3 originalDominantWristScale;
+        private static bool dominantWristMirrored;
+        private static readonly List<KeyValuePair<Renderer, Material[]>>
+            mirroredDominantMaterialRestores =
+                new List<KeyValuePair<Renderer, Material[]>>();
         private static Transform leftHandAnchor;
         private static Transform originalLeftHandParent;
         private static int originalLeftHandSibling;
@@ -150,6 +286,7 @@ namespace MFNVRBridge
         private static GameObject leftHandVisualObject;
         private static Mesh leftHandVisualMesh;
         private static bool usingBakedLeftHand;
+        private static int bakedHandCharacterKey = int.MinValue;
         private static Renderer[] leftHandRenderers = new Renderer[0];
         private static Transform originalItemParent;
         private static int originalItemSibling;
@@ -166,12 +303,11 @@ namespace MFNVRBridge
         private static bool leftPoseValid;
         private static bool twoHanded;
         private static bool previousLeftGripPressed;
-        private static float leftCalibrationHoldStarted = -1f;
-        private static bool leftCalibrationHoldTriggered;
-        private static bool leftCalibrationLoaded;
-        private static bool haveUserLeftHandCalibration;
-        private static Quaternion userLeftGripToHandRotation;
-        private static string leftHandCalibrationFilePath;
+        // This is the user's final calibrated Rift S neutral pose. It is intentionally
+        // baked into the mod so hand alignment is stable on every launch and cannot be
+        // accidentally changed by a gameplay button hold.
+        private static readonly Quaternion SavedLeftGripToHandRotation =
+            new Quaternion(0.7296127f, -0.343231469f, 0.2430663f, 0.539236665f);
         private static Vector3 lockedLeftHandItemLocalPosition;
         private static Quaternion lockedLeftHandItemLocalRotation;
         private static string lockedSupportGripName;
@@ -204,6 +340,7 @@ namespace MFNVRBridge
         private static int motionDiagnosticFrame;
         private static bool gameplayPatchesInstalled;
         private static FieldInfo coreTouchGamepadField;
+        private static FieldInfo coreLastTouchInputFrameField;
         private static bool leftHandDpadMode;
         private static bool behindHeadInputHookInstalled;
         private static Gamepad behindHeadGamepad;
@@ -215,6 +352,13 @@ namespace MFNVRBridge
         private static Vector3 gunRayOrigin;
         private static Vector3 gunRayDirection;
         private static Vector3 gunRayTarget;
+        private static int lastGunRayFrame = -1;
+        private static Vector3 lastGunRayOrigin;
+        private static Vector3 lastGunRayDirection;
+        private static int gunRayMask;
+        private static bool gunRayMaskReady;
+        private static int gameplayInteractionMask;
+        private static bool gameplayInteractionMaskReady;
         // The OpenXR Touch aim pose sits slightly left of MFN's authored barrel line.
         // Correct the one shared ray so the sight, hitscan target, and spawned projectiles
         // all remain coincident instead of applying separate per-weapon visual fixes.
@@ -240,19 +384,13 @@ namespace MFNVRBridge
         private static float wrenchGripPeakSpeed;
         private static float lastWrenchDamageTime = -999f;
         private static int lastWrenchPhysicsFrame = -1;
+        private static readonly RaycastHit[] wrenchSweepHits = new RaycastHit[64];
+        private static readonly Collider[] wrenchOverlapColliders = new Collider[64];
+        private static readonly RaycastHit[] interactionAssistHits = new RaycastHit[64];
         private static InventoryInWorld physicalInventory;
         private static InventoryRowOfSquares[] physicalInventoryRows;
         private static ItemInInventory physicalInventoryHeldItem;
         private static bool physicalInventoryPositioned;
-        private static bool previousInventoryGripPressed;
-        private static Vector3 physicalItemOriginalLocalPosition;
-        private static Quaternion physicalItemOriginalLocalRotation;
-        private static Vector3 physicalGrabPositionOffset;
-        private static Quaternion physicalGrabRotationOffset;
-        private static Quaternion physicalGrabControllerRotation;
-        private static int physicalItemOriginalX;
-        private static int physicalItemOriginalY;
-        private static int physicalItemOriginalRotation;
         private static bool previousInventoryTriggerPressed;
         private static bool previousInventoryPrimaryPressed;
         private static bool previousMenuPointerLeftTriggerPressed;
@@ -262,18 +400,72 @@ namespace MFNVRBridge
         private static GameObject inventoryPointerDot;
         private static Material inventoryPointerMaterial;
         private static LineRenderer inventoryPointerLine;
+        private static Color inventoryPointerColor;
+        private static bool inventoryPointerColorReady;
+        private static int menuPointerVisualLayer = int.MinValue;
         private static Transform menuRightHandVisualRoot;
+        private static Transform[] menuRightHandVisualTransforms = new Transform[0];
         private static GameObject menuRightHandVisualObject;
         private static Mesh menuRightHandVisualMesh;
         private static Quaternion rightGripToMenuHandRotation = Quaternion.identity;
         private static bool menuPointerInputActive;
+        // Native/world-space pointer work is transition driven. In ordinary gameplay this
+        // remains false, so no hover cleanup, inventory traversal, raycast or visual update
+        // is performed just because motion-controller tracking is active.
+        private static bool menuPointerRuntimeActive;
         private static Interactable menuPointerHoveredInteractable;
         private static Interactable flatMenuPointerHoveredInteractable;
+        private static Menus.MenuBarNub flatMenuGrabbedSlider;
+        private static bool flatMenuSliderCaptureActive;
+        private static bool flatMenuSliderUsedVanillaPickup;
+        private static float nextFlatMenuSliderValueUpdateTime;
         private static bool flatMenuPointerActive;
         private static bool previousFlatMenuTriggerPressed;
         private static bool previousFlatMenuPrimaryPressed;
+        private static bool previousFlatMenuLeftTriggerPressed;
         private static int flatMenuPointerFrame = -1;
         private static int flatMenuPointerMode = -1;
+        private static int cachedMainMenuSceneHandle = int.MinValue;
+        private static int nextMainMenuActivatorProbeFrame;
+        private static bool cachedMainMenuActivatorPresent;
+        private static readonly RaycastHit[] flatMenuPointerHits = new RaycastHit[32];
+        private static readonly RaycastHit[] dropdownPointerHits = new RaycastHit[32];
+        private static readonly RaycastHit[] inventoryItemPointerHits = new RaycastHit[64];
+        private static readonly RaycastHit[] interactionPointerHits = new RaycastHit[64];
+        private static readonly List<InventoryInWorld> pointerInventories =
+            new List<InventoryInWorld>(3);
+        private static readonly List<InventoryInWorld> singlePointerInventory =
+            new List<InventoryInWorld>(1);
+        private static readonly List<KeyValuePair<int, Transform>> dropdownActiveNodes =
+            new List<KeyValuePair<int, Transform>>(8);
+        private static readonly List<MonoBehaviour> pointerParentBehaviours =
+            new List<MonoBehaviour>(8);
+        private static readonly Dictionary<Transform, Renderer[]> dropdownRendererCache =
+            new Dictionary<Transform, Renderer[]>();
+        private static readonly Dictionary<Transform, Transform[]> dropdownTransformCache =
+            new Dictionary<Transform, Transform[]>();
+        private static readonly Dictionary<int, InventoryRowOfSquares[]>
+            suppressedInventoryHighlightRows =
+                new Dictionary<int, InventoryRowOfSquares[]>();
+        private static int suppressedInventoryHighlightSceneHandle = int.MinValue;
+        private static int defaultLayer = int.MinValue;
+        private static int inventoryLayer = int.MinValue;
+        private static int inventoryCursorLayer = int.MinValue;
+        private static int worldAttachedUiHoverMask;
+        private static bool worldAttachedUiHoverMaskReady;
+        private static NoteReadoutInWorld cachedNoteReadout;
+        private static Renderer[] cachedNoteReadoutRenderers;
+        private static int cachedNoteReadoutLayerMask;
+        private static bool noteReadoutLayerLogged;
+        private static ItemBoxParent cachedToolboxVisualItemBox;
+        private static InventoryInWorld cachedToolboxVisualUpper;
+        private static InventoryInWorld cachedToolboxVisualDrawer;
+        private static int cachedToolboxVisualLayerMask;
+        private static bool cachedToolboxVisualsReady;
+        private static int pointerInteractionMask;
+        private static bool pointerInteractionMaskReady;
+        private static int pointerUiLayerMask;
+        private static bool pointerUiLayerMaskReady;
         private static ItemInInventory menuPointerHoveredItem;
         private static InventoryInWorld menuPointerInventory;
         private static InventorySquare menuPointerSquare;
@@ -367,6 +559,204 @@ namespace MFNVRBridge
             }
         }
 
+        public static void ApplyLeftHandedSettings(bool enabled)
+        {
+            enabled = LeftHandedModeAvailable && enabled;
+            if (leftHandedMode == enabled)
+                return;
+            var itemToRebind = motionItem;
+            var wasEmptyHandRig = motionItemIsEmptyHandRig;
+            if (itemToRebind != null)
+                RestorePreviousItem();
+            DestroyCachedCharacterHandVisuals();
+            leftHandedMode = enabled;
+            previousInventoryTriggerPressed = false;
+            previousInventoryPrimaryPressed = false;
+            previousMenuPointerLeftTriggerPressed = false;
+            previousInventoryRotatePressed = false;
+            previousFlatMenuTriggerPressed = false;
+            previousFlatMenuPrimaryPressed = false;
+            previousFlatMenuLeftTriggerPressed = false;
+            previousPhysicalWeaponGripPressed = false;
+            previousLeftGripPressed = false;
+            ReleaseSupportGrip(false);
+            if (itemToRebind != null && !wasEmptyHandRig)
+                BindHeldItem(itemToRebind);
+            settingsMenuTextureDirty = true;
+            settingsRevision++;
+            Debug.Log("MFNVR: dominant hand changed to " +
+                (leftHandedMode ? "left" : "right") +
+                "; weapon, pointer, trigger, and grip routing updated.");
+        }
+
+        public static void SetSettingsMenuOpen(bool open)
+        {
+            if (settingsMenuOpen == open)
+                return;
+            settingsMenuOpen = open;
+            settingsMenuTextureDirty = true;
+            settingsMenuHoveredTab = -1;
+            settingsMenuHoveredOption = -1;
+            settingsMenuDraggingOption = -1;
+            if (open)
+            {
+                settingsMenuPreviousTimeScale = Time.timeScale;
+                Time.timeScale = 0f;
+                settingsMenuPausedTime = true;
+                ReadSettingsMenuValues();
+                ResetMenuPointerInteraction();
+                // Do not reset the flat pointer's pressed-edge state here. This method
+                // can be called from inside its own click handler; clearing the state
+                // would make the same held A/trigger register again later in the frame.
+                if (muzzleSight != null)
+                    muzzleSight.SetActive(false);
+            }
+            else if (settingsMenuPausedTime)
+            {
+                Time.timeScale = settingsMenuPreviousTimeScale;
+                settingsMenuPausedTime = false;
+            }
+            settingsMenuVisibilityChanged?.Invoke(open);
+            Debug.Log("MFNVR: captured VR Settings screen " +
+                      (open ? "opened." : "closed."));
+        }
+
+        public static bool IsSettingsMenuOpen()
+        {
+            return settingsMenuOpen;
+        }
+
+        public static void RegisterSettingsMenuProvider(
+            Func<float[], bool> reader, Func<int, float, bool> writer,
+            Action<bool> visibilityChanged)
+        {
+            settingsMenuValueReader = reader;
+            settingsMenuValueWriter = writer;
+            settingsMenuVisibilityChanged = visibilityChanged;
+            getSettingsMenuValuesMethod = null;
+            setSettingsMenuValueMethod = null;
+            settingsMenuProviderWarningLogged = false;
+            if (settingsMenuOpen)
+            {
+                settingsMenuVisibilityChanged?.Invoke(true);
+                ReadSettingsMenuValues();
+            }
+            Debug.Log("MFNVR: live settings provider connected to the captured menu.");
+        }
+
+        public static void ToggleSettingsMenu()
+        {
+            SetSettingsMenuOpen(!settingsMenuOpen);
+        }
+
+        public static bool ConsumeSettingsMenuToggleRequest()
+        {
+            UpdateSettingsMenuToggleGesture();
+            if (!settingsMenuToggleRequested)
+                return false;
+            settingsMenuToggleRequested = false;
+            return true;
+        }
+
+        private static void UpdateSettingsMenuToggleGesture()
+        {
+            if (settingsMenuGestureFrame == Time.frameCount)
+                return;
+            settingsMenuGestureFrame = Time.frameCount;
+
+            float lx, ly, lt, lg, rx, ry, rt, rg;
+            int lp, ls, lc, lm, rp, rs, rc, rm;
+            var haveLeft = MFN_GetControllerInput(0, out lx, out ly, out lt, out lg,
+                out lp, out ls, out lc, out lm) != 0;
+            MFN_GetControllerInput(1, out rx, out ry, out rt, out rg,
+                out rp, out rs, out rc, out rm);
+            var leftHeld = haveLeft && lc != 0;
+            if (!leftHeld)
+            {
+                foreach (var gamepad in Gamepad.all)
+                {
+                    if (gamepad != null && gamepad.added &&
+                        gamepad.leftStickButton.isPressed)
+                    {
+                        leftHeld = true;
+                        break;
+                    }
+                }
+            }
+            if (!settingsMenuGestureInputLogged && leftHeld)
+            {
+                settingsMenuGestureInputLogged = true;
+                Debug.Log("MFNVR: left-stick settings gesture input detected.");
+            }
+            if (!leftHeld)
+            {
+                settingsMenuGestureHoldStarted = -1f;
+                settingsMenuGestureTriggered = false;
+                return;
+            }
+
+            if (settingsMenuGestureHoldStarted < 0f)
+                settingsMenuGestureHoldStarted = Time.realtimeSinceStartup;
+            if (settingsMenuGestureTriggered ||
+                Time.realtimeSinceStartup - settingsMenuGestureHoldStarted < 2f)
+                return;
+
+            settingsMenuGestureTriggered = true;
+            ToggleSettingsMenu();
+            Debug.Log("MFNVR: two-second left-stick settings gesture completed.");
+        }
+
+        public static bool TryGetSettingsMenuTracking(float[] values)
+        {
+            // 0..2 head position, 3..6 head rotation, 7..9 right-aim position,
+            // 10..13 right-aim rotation, 14 right trigger. A flat array keeps the companion
+            // loosely coupled to this assembly and avoids a Unity-type ABI dependency.
+            if (values == null || values.Length < 15)
+                return false;
+            Vector3 headPosition;
+            Quaternion headRotation;
+            if (menuScreen != null && (settingsMenuOpen || menuScreen.activeInHierarchy) &&
+                lastMenuLeftEye != null && lastMenuRightEye != null &&
+                TryMapRightControllerToFlatMenu(lastMenuLeftEye, lastMenuRightEye))
+            {
+                headPosition = (lastMenuLeftEye.transform.position +
+                                lastMenuRightEye.transform.position) * 0.5f;
+                headRotation = Quaternion.Slerp(lastMenuLeftEye.transform.rotation,
+                    lastMenuRightEye.transform.rotation, 0.5f);
+            }
+            else if (haveWorldEyeData && motionPoseValid)
+            {
+                headPosition = (worldLeftEyePosition + worldRightEyePosition) * 0.5f;
+                headRotation = Quaternion.Slerp(worldLeftEyeRotation,
+                    worldRightEyeRotation, 0.5f);
+            }
+            else
+            {
+                return false;
+            }
+            values[0] = headPosition.x;
+            values[1] = headPosition.y;
+            values[2] = headPosition.z;
+            values[3] = headRotation.x;
+            values[4] = headRotation.y;
+            values[5] = headRotation.z;
+            values[6] = headRotation.w;
+            values[7] = rightAimWorldPosition.x;
+            values[8] = rightAimWorldPosition.y;
+            values[9] = rightAimWorldPosition.z;
+            values[10] = rightAimWorldRotation.x;
+            values[11] = rightAimWorldRotation.y;
+            values[12] = rightAimWorldRotation.z;
+            values[13] = rightAimWorldRotation.w;
+            float sx, sy, trigger, squeeze;
+            int primary, secondary, stickClick, menu;
+            values[14] = MFN_GetControllerInput(DominantHandIndex, out sx, out sy, out trigger,
+                out squeeze, out primary, out secondary, out stickClick, out menu) != 0
+                ? trigger
+                : 0f;
+            return true;
+        }
+
         public static void ConfigureTrackedPairPost(Camera source, Camera left, Camera right,
             RenderTexture leftTexture, RenderTexture rightTexture,
             bool isWorld, bool isHud, bool gameplay)
@@ -374,6 +764,8 @@ namespace MFNVRBridge
             if (source == null || left == null || right == null ||
                 leftTexture == null || rightTexture == null)
                 return;
+
+            UpdateSettingsMenuToggleGesture();
 
             var physicalInventoryActive = IsPhysicalInventoryActive();
             var cutsceneActive = IsCutsceneActive();
@@ -384,7 +776,9 @@ namespace MFNVRBridge
                 interactionPointerCameraActive = false;
                 interactionPointerUsesStableRig = false;
                 SetStereoOutlineActive(left, right, source, false);
-                if (physicalInventoryActive)
+                if (settingsMenuOpen)
+                    ConfigureMenuScreen(source, left, right, leftTexture, rightTexture);
+                else if (physicalInventoryActive)
                     ConfigurePhysicalInventoryWorld(source, left, right,
                         leftTexture, rightTexture);
                 else if (gameplay || cutsceneActive)
@@ -397,8 +791,24 @@ namespace MFNVRBridge
             }
             else if (isHud)
             {
+                // The settings panel is already the final element composited into the
+                // captured menu texture. Do not render MFN's pause/HUD cameras over the
+                // stereo menu eyes afterward, or the pause overlay obscures this panel.
+                if (settingsMenuOpen)
+                {
+                    left.enabled = false;
+                    right.enabled = false;
+                    return;
+                }
+                // With UI Screens limited to main/pause/files, interaction interfaces
+                // remain in the real world camera instead of a captured panel. Their
+                // prompts, labels and action menus still live on MFN's HUD camera, so
+                // render that stereo overlay instead of compositing it into the unused
+                // flat-screen texture.
+                var worldAttachedUi = IsUiModeActive() && !ShouldUseFlatUiScreen();
                 ConfigureHud(source, left, right, leftTexture, rightTexture,
-                    gameplay || physicalInventoryActive || cutsceneActive);
+                    gameplay || physicalInventoryActive || cutsceneActive ||
+                    worldAttachedUi);
             }
 
             // MFN's original cameras still have to stay alive because they drive camera
@@ -418,10 +828,19 @@ namespace MFNVRBridge
 
             EnsureSourceBackbufferOptimizer(source);
 
+            var uiModeActive = IsUiModeActive();
+            int noteReadoutLayerMask;
+            var noteReadoutVisible = TryGetVisibleNoteReadoutLayerMask(
+                out noteReadoutLayerMask);
+            var cutsceneActive = IsCutsceneActive();
+            var hideGameplayHands = (uiModeActive && !noteReadoutVisible) ||
+                                    cutsceneActive;
+
             // Re-sample immediately before the hands cameras render. This is a late pose update,
             // so controller motion is not a frame behind the headset and animation cannot pull
             // the wrists away from their physical Touch controller positions.
-            if (motionActive && motionContextValid)
+            if (motionActive && motionContextValid && !uiModeActive &&
+                !cutsceneActive)
             {
                 RefreshControllerPoses();
                 if (IsPhysicalInventoryActive())
@@ -437,6 +856,34 @@ namespace MFNVRBridge
 
             CopyOverlayCamera(source, left, leftTexture);
             CopyOverlayCamera(source, right, rightTexture);
+            if (noteReadoutVisible)
+            {
+                // MFN draws the readable note panel with SpriteRenderer/TMP objects on
+                // its first-person overlay camera, not on the normal HUD camera. Keep
+                // the gameplay hands camera suppressed in interaction views, but let its
+                // stereo clones draw only the layers occupied by the active note reader.
+                // The game's normal SetHandsGone state keeps weapon/arm renderers out.
+                var readableMask = noteReadoutLayerMask & source.cullingMask;
+                if (readableMask != 0)
+                {
+                    left.cullingMask = readableMask;
+                    right.cullingMask = readableMask;
+                    if (!noteReadoutLayerLogged)
+                    {
+                        Debug.Log("MFNVR: note reader stereo overlay enabled (mask 0x" +
+                                  readableMask.ToString("X8") + ").");
+                        noteReadoutLayerLogged = true;
+                    }
+                }
+                else
+                {
+                    // A few scenes author the readout on a layer omitted from the source
+                    // overlay mask. Render that exact discovered layer rather than hiding
+                    // the note entirely.
+                    left.cullingMask = noteReadoutLayerMask;
+                    right.cullingMask = noteReadoutLayerMask;
+                }
+            }
             if (motionActive && haveWorldEyeData)
             {
                 left.transform.SetPositionAndRotation(worldLeftEyePosition, worldLeftEyeRotation);
@@ -459,14 +906,51 @@ namespace MFNVRBridge
                 right.projectionMatrix = projection;
             }
 
-            // UI modes must not have the first-person weapon, authored arms, or floating
-            // VR hands composited over them. Disabling only the cloned Hands cameras
-            // leaves gameplay/equipment state untouched, and CopyOverlayCamera restores
-            // everything automatically on the first frame back in gameplay.
-            if (IsUiModeActive())
+            // UI modes and cutscenes must not have the first-person weapon, authored
+            // arms, or floating VR hands composited over them. Disabling only the cloned
+            // Hands cameras leaves gameplay/equipment state untouched, preserves the
+            // separate menu pointer, and restores everything on returning to gameplay.
+            if (hideGameplayHands)
             {
                 left.enabled = false;
                 right.enabled = false;
+            }
+        }
+
+        private static bool TryGetVisibleNoteReadoutLayerMask(out int layerMask)
+        {
+            layerMask = 0;
+            try
+            {
+                var player = Player.current;
+                var readout = player != null ? player.GetNoteReadout() : null;
+                if (readout == null ||
+                    !ReadBooleanField(noteReadoutVisibleField, readout))
+                {
+                    noteReadoutLayerLogged = false;
+                    return false;
+                }
+
+                if (!ReferenceEquals(cachedNoteReadout, readout) ||
+                    cachedNoteReadoutRenderers == null)
+                {
+                    cachedNoteReadout = readout;
+                    cachedNoteReadoutRenderers = readout
+                        .GetComponentsInChildren<Renderer>(true);
+                    cachedNoteReadoutLayerMask = 0;
+                    foreach (var renderer in cachedNoteReadoutRenderers)
+                    {
+                        if (renderer != null)
+                            cachedNoteReadoutLayerMask |= 1 << renderer.gameObject.layer;
+                    }
+                }
+
+                layerMask = cachedNoteReadoutLayerMask;
+                return layerMask != 0;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -476,6 +960,7 @@ namespace MFNVRBridge
         {
             var inventory = GetPhysicalInventory(player);
             var physicalInventoryActive = inventory != null;
+            var uiModeActive = IsUiModeActive(player, inventory);
             if (Player.current != null && player != Player.current)
                 return motionPoseValid && (motionItem != null || physicalInventoryActive);
             motionOriginPosition = originPosition;
@@ -483,7 +968,7 @@ namespace MFNVRBridge
             // Keep a genuinely stable gameplay base for the normal Y inventory. MFN
             // animates rigPosition onto its inventory camera after Y is pressed; saving
             // that animated value made the VR view move with the flat-camera animation.
-            if (!physicalInventoryActive && !IsUiModeActive() && !IsCutsceneActive() &&
+            if (!physicalInventoryActive && !uiModeActive && !IsCutsceneActive() &&
                 hasOrigin && useRig)
             {
                 lastGameplayRigPosition = rigPosition;
@@ -492,12 +977,14 @@ namespace MFNVRBridge
             }
             motionRigPosition = rigPosition;
             motionRigRotation = rigRotation;
-            var menuPointerContext = menuPointerEnabled && IsUiModeActive();
+            var menuPointerContext = IsNativeMenuPointerContext(player, inventory);
             motionContextValid = player != null && hasOrigin &&
                 (useRig || physicalInventoryActive || menuPointerContext);
             if (!motionContextValid)
             {
                 motionPoseValid = false;
+                if (menuPointerRuntimeActive)
+                    ResetMenuPointerInteraction();
                 return false;
             }
 
@@ -505,19 +992,24 @@ namespace MFNVRBridge
             {
                 EnsureGameplayPatches();
                 RefreshControllerPoses();
+                if (settingsMenuOpen)
+                {
+                    if (menuPointerRuntimeActive)
+                        ResetMenuPointerInteraction();
+                    return false;
+                }
                 UpdatePhysicalWeaponSwitching(player, physicalInventoryActive);
-                var menuPointerActive = menuPointerEnabled && motionPoseValid &&
-                    (physicalInventoryActive ||
-                     (IsUiModeActive() && !ShouldUseFlatUiScreen()));
+                var menuPointerActive = motionPoseValid && menuPointerContext;
                 if (menuPointerActive)
                 {
                     motionManager = player.GetEquipManager();
-                    BindHeldItem(GetHeldItem(motionManager));
+                    BindHeldItemOrEmptyHands(motionManager);
                     UpdateMenuPointerInteraction(player, inventory);
                     return false;
                 }
 
-                ResetMenuPointerInteraction();
+                if (menuPointerRuntimeActive)
+                    ResetMenuPointerInteraction();
                 if (physicalInventoryActive)
                 {
                     EnsurePhysicalInventoryState(inventory);
@@ -526,7 +1018,7 @@ namespace MFNVRBridge
 
                 ResetPhysicalInventoryStateIfClosed();
                 motionManager = player.GetEquipManager();
-                BindHeldItem(GetHeldItem(motionManager));
+                BindHeldItemOrEmptyHands(motionManager);
                 UpdateTwoHandGrip();
                 ApplyTrackedTransforms();
                 UpdatePhysicalWrenchDamage();
@@ -585,10 +1077,16 @@ namespace MFNVRBridge
                 var dpadPostfix = new HarmonyMethod(typeof(RenderBridge).GetMethod(
                     nameof(ApplyBehindHeadDpadPostfix), BindingFlags.Static |
                     BindingFlags.NonPublic));
+                var pointerInputPrefix = new HarmonyMethod(typeof(RenderBridge).GetMethod(
+                    nameof(SuppressCoreTouchGamepadWhilePointerPrefix),
+                    BindingFlags.Static | BindingFlags.NonPublic));
                 if (updateTouchGamepad != null && dpadPostfix.method != null)
                 {
                     coreTouchGamepadField = AccessTools.Field(coreType, "touchGamepad");
-                    harmony.Patch(updateTouchGamepad, postfix: dpadPostfix);
+                    coreLastTouchInputFrameField = AccessTools.Field(coreType,
+                        "lastTouchInputFrame");
+                    harmony.Patch(updateTouchGamepad, prefix: pointerInputPrefix,
+                        postfix: dpadPostfix);
                     if (!behindHeadInputHookInstalled)
                     {
                         InputSystem.onBeforeUpdate += SuppressBehindHeadWalkingBeforeInputUpdate;
@@ -615,6 +1113,8 @@ namespace MFNVRBridge
         {
             try
             {
+                if (settingsMenuOpen || menuPointerInputActive)
+                    return;
                 var gamepad = coreTouchGamepadField?.GetValue(__instance) as Gamepad;
                 if (gamepad == null || !gamepad.added)
                     return;
@@ -670,12 +1170,147 @@ namespace MFNVRBridge
             }
         }
 
+        private static bool SuppressCoreTouchGamepadWhilePointerPrefix(object __instance)
+        {
+            // Skipping the complete core update also removes B, so do that only for the
+            // modal settings panel and while directly selecting its custom launch button.
+            // Native interaction-pointer menus keep the core update and selectively mask
+            // A/trigger later, allowing their ordinary B/back binding to remain intact.
+            var suppressCompleteGamepad = settingsMenuOpen ||
+                (flatMenuPointerActive && menuSettingsButtonHovered);
+            if (!suppressCompleteGamepad && !leftHandedMode)
+                return true;
+            try
+            {
+                var gamepad = coreTouchGamepadField?.GetValue(__instance) as Gamepad;
+                if (gamepad == null || !gamepad.added)
+                {
+                    // Let the stable core create its virtual device. From the next frame
+                    // onward this prefix emits the one authoritative left-handed state.
+                    return true;
+                }
+
+                behindHeadGamepad = gamepad;
+                if (suppressCompleteGamepad)
+                {
+                    InputSystem.QueueStateEvent(gamepad, new GamepadState());
+                    return false;
+                }
+
+                var currentFrame = Time.frameCount;
+                if (coreLastTouchInputFrameField != null)
+                {
+                    var lastFrame = (int)coreLastTouchInputFrameField.GetValue(__instance);
+                    if (lastFrame == currentFrame)
+                        return false;
+                    coreLastTouchInputFrameField.SetValue(__instance, currentFrame);
+                }
+
+                float leftX, leftY, leftTrigger, leftGrip;
+                float rightX, rightY, rightTrigger, rightGrip;
+                int leftPrimary, leftSecondary, leftStickClick, leftMenu;
+                int rightPrimary, rightSecondary, rightStickClick, rightMenu;
+                if (MFN_GetControllerInput(0, out leftX, out leftY, out leftTrigger,
+                        out leftGrip, out leftPrimary, out leftSecondary,
+                        out leftStickClick, out leftMenu) == 0 ||
+                    MFN_GetControllerInput(1, out rightX, out rightY, out rightTrigger,
+                        out rightGrip, out rightPrimary, out rightSecondary,
+                        out rightStickClick, out rightMenu) == 0)
+                    return false;
+
+                // MFN expects firing on the virtual Xbox right trigger. In left-handed
+                // mode that value comes only from the physical left trigger. The physical
+                // right trigger stays raw for support-hand inventory and action-menu use,
+                // preventing either trigger from also flipping/firing the weapon.
+                var state = new GamepadState
+                {
+                    leftStick = ApplyVirtualGamepadStickDeadzone(
+                        new Vector2(leftX, leftY)),
+                    rightStick = ApplyVirtualGamepadStickDeadzone(
+                        new Vector2(rightX, rightY)),
+                    leftTrigger = 0f,
+                    rightTrigger = ApplyVirtualGamepadTriggerDeadzone(leftTrigger)
+                };
+                state = state.WithButton(GamepadButton.West, leftPrimary != 0)
+                    .WithButton(GamepadButton.North, leftSecondary != 0)
+                    .WithButton(GamepadButton.South, rightPrimary != 0)
+                    .WithButton(GamepadButton.East, rightSecondary != 0)
+                    .WithButton(GamepadButton.LeftShoulder, false)
+                    .WithButton(GamepadButton.RightShoulder, leftGrip > 0.55f)
+                    .WithButton(GamepadButton.LeftStick, leftStickClick != 0)
+                    .WithButton(GamepadButton.RightStick, rightStickClick != 0)
+                    .WithButton(GamepadButton.Start, leftMenu != 0);
+                InputSystem.QueueStateEvent(gamepad, state);
+            }
+            catch (Exception exception)
+            {
+                if (Time.frameCount >= motionDiagnosticFrame)
+                {
+                    motionDiagnosticFrame = Time.frameCount + 240;
+                    Debug.LogWarning("MFNVR left-handed virtual gamepad failed: " +
+                        exception.Message);
+                }
+                // If remapping fails, retain ordinary controller input rather than
+                // leaving the player without controls.
+                return true;
+            }
+            return false;
+        }
+
+        private static Vector2 ApplyVirtualGamepadStickDeadzone(Vector2 value)
+        {
+            const float deadzone = 0.18f;
+            var magnitude = value.magnitude;
+            if (magnitude <= deadzone)
+                return Vector2.zero;
+            return value.normalized * Mathf.Clamp01((magnitude - deadzone) /
+                (1f - deadzone));
+        }
+
+        private static float ApplyVirtualGamepadTriggerDeadzone(float value)
+        {
+            const float deadzone = 0.04f;
+            if (value <= deadzone)
+                return 0f;
+            return Mathf.Clamp01((value - deadzone) / (1f - deadzone));
+        }
+
         private static void SuppressBehindHeadWalkingBeforeInputUpdate()
         {
             // The stable camera core queues its complete virtual-gamepad state from
             // Player.Update. Unity processes that state at the next InputSystem update.
             // Override locomotion in onBeforeUpdate while the gesture is active. Files
             // itself is opened explicitly above and no D-pad state is synthesized.
+            if (settingsMenuOpen)
+            {
+                // The settings screen is modal. Neutralize every gamepad instead of only
+                // the Touch-backed virtual pad so a physical controller cannot move the
+                // player or operate MFN's menu behind the VR settings panel either.
+                foreach (var activeGamepad in Gamepad.all)
+                {
+                    if (activeGamepad != null && activeGamepad.added)
+                        NeutralizeGamepad(activeGamepad);
+                }
+                return;
+            }
+            var suppressPointerGamepad = menuPointerInputActive &&
+                (!flatMenuPointerActive || menuSettingsButtonHovered);
+            if (suppressPointerGamepad)
+            {
+                // Pointer clicks come from raw OpenXR. Remove their virtual-Xbox copies
+                // before MFN can activate its joystick-selected item behind the pointer.
+                // This is especially important on the title screen, where leaked A was
+                // activating Quit while the VR Settings button was being selected.
+                foreach (var activeGamepad in Gamepad.all)
+                {
+                    if (activeGamepad == null || !activeGamepad.added)
+                        continue;
+                    InputSystem.QueueDeltaStateEvent(activeGamepad.leftTrigger, 0f);
+                    InputSystem.QueueDeltaStateEvent(activeGamepad.rightTrigger, 0f);
+                    InputSystem.QueueDeltaStateEvent(activeGamepad.buttonSouth, 0f);
+                    InputSystem.QueueDeltaStateEvent(activeGamepad.rightStickButton, 0f);
+                }
+            }
             var gamepad = behindHeadGamepad;
             if (gamepad == null || !gamepad.added)
                 return;
@@ -684,7 +1319,7 @@ namespace MFNVRBridge
             // The menu pointer reads raw OpenXR input before MFN's virtual Xbox layer.
             // Suppress the translated copies while it is active so one trigger pull cannot
             // both click the pointed target and activate the old gamepad selection.
-            if (menuPointerInputActive)
+            if (suppressPointerGamepad)
             {
                 InputSystem.QueueDeltaStateEvent(gamepad.leftTrigger, 0f);
                 InputSystem.QueueDeltaStateEvent(gamepad.rightTrigger, 0f);
@@ -698,6 +1333,25 @@ namespace MFNVRBridge
             // by the two tracked holster zones below.
             if (suppressNormalRightGripWeaponSwitch)
                 InputSystem.QueueDeltaStateEvent(gamepad.rightShoulder, 0f);
+        }
+
+        private static void NeutralizeGamepad(Gamepad gamepad)
+        {
+            InputSystem.QueueDeltaStateEvent(gamepad.leftStick, Vector2.zero);
+            InputSystem.QueueDeltaStateEvent(gamepad.rightStick, Vector2.zero);
+            InputSystem.QueueDeltaStateEvent(gamepad.leftTrigger, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.rightTrigger, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.leftShoulder, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.rightShoulder, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.buttonSouth, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.buttonNorth, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.buttonEast, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.buttonWest, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.leftStickButton, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.rightStickButton, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.startButton, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.selectButton, 0f);
+            InputSystem.QueueDeltaStateEvent(gamepad.dpad, Vector2.zero);
         }
 
         private static bool SuppressVirtualRightGripWeaponSwitchPrefix(
@@ -724,7 +1378,7 @@ namespace MFNVRBridge
 
             float stickX, stickY, trigger, squeeze;
             int primary, secondary, stickClick, menu;
-            var haveInput = MFN_GetControllerInput(1, out stickX, out stickY,
+            var haveInput = MFN_GetControllerInput(DominantHandIndex, out stickX, out stickY,
                 out trigger, out squeeze, out primary, out secondary,
                 out stickClick, out menu) != 0;
             var gripPressed = haveInput && squeeze >= 0.72f;
@@ -747,8 +1401,11 @@ namespace MFNVRBridge
             // Head-relative body anchors make the zones follow room-scale movement and
             // the player's current facing direction without depending on MFN's flat
             // camera yaw. The radii are deliberately generous enough for Rift Touch.
-            var hip = headPosition + right * 0.25f - Vector3.up * 0.56f - forward * 0.03f;
-            var shoulder = headPosition + right * 0.20f - Vector3.up * 0.10f - forward * 0.25f;
+            var dominantSide = leftHandedMode ? -1f : 1f;
+            var hip = headPosition + right * (0.25f * dominantSide) -
+                Vector3.up * 0.56f - forward * 0.03f;
+            var shoulder = headPosition + right * (0.20f * dominantSide) -
+                Vector3.up * 0.10f - forward * 0.25f;
             var hipDistance = Vector3.Distance(rightGripWorldPosition, hip);
             var shoulderDistance = Vector3.Distance(rightGripWorldPosition, shoulder);
 
@@ -758,7 +1415,7 @@ namespace MFNVRBridge
                 {
                     InventoryItem.Wrench,
                     InventoryItem.LetterGrenade
-                }, "right hip");
+                }, leftHandedMode ? "left hip" : "right hip");
             }
             else if (shoulderDistance <= 0.34f)
             {
@@ -767,7 +1424,7 @@ namespace MFNVRBridge
                     InventoryItem.BoxingGloveGun,
                     InventoryItem.BoxingGloveShotgun,
                     InventoryItem.FinalGun
-                }, "right shoulder");
+                }, leftHandedMode ? "left shoulder" : "right shoulder");
             }
         }
 
@@ -894,6 +1551,87 @@ namespace MFNVRBridge
                 : null;
         }
 
+        private static void BindHeldItemOrEmptyHands(EquippedManager manager)
+        {
+            var heldItem = GetHeldItem(manager);
+            if (heldItem != null)
+            {
+                BindHeldItem(heldItem);
+                return;
+            }
+            if (motionItemIsEmptyHandRig && motionItem != null)
+                return;
+
+            var emptyHandRig = CreateEmptyHandRig(manager);
+            if (emptyHandRig == null)
+            {
+                BindHeldItem(null);
+                return;
+            }
+            BindHeldItem(emptyHandRig);
+            motionItemIsEmptyHandRig = motionItem == emptyHandRig;
+            if (motionItemIsEmptyHandRig)
+                Debug.Log("MFNVR: created tracked empty hands before weapon unlock.");
+        }
+
+        private static ItemInHand CreateEmptyHandRig(EquippedManager manager)
+        {
+            if (manager == null || equippedItemsField == null)
+                return null;
+            try
+            {
+                var prefabs = equippedItemsField.GetValue(manager) as ItemInHand[];
+                if (prefabs == null || prefabs.Length == 0)
+                    return null;
+
+                ItemInHand handSource = null;
+                var preferredIndex = (int)InventoryItem.BoxingGloveGun;
+                if (preferredIndex >= 0 && preferredIndex < prefabs.Length)
+                    handSource = prefabs[preferredIndex];
+                if (handSource == null ||
+                    FindNamedTransform(handSource, "PL_HAND_R") == null)
+                {
+                    foreach (var candidate in prefabs)
+                    {
+                        if (candidate != null &&
+                            FindNamedTransform(candidate, "PL_HAND_R") != null &&
+                            FindNamedTransform(candidate, "PL_HAND_L") != null)
+                        {
+                            handSource = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (handSource == null)
+                    return null;
+
+                var clone = UnityEngine.Object.Instantiate(handSource,
+                    Vector3.down * 1000f, Quaternion.identity);
+                clone.name = "MFN VR Empty Tracked Hands";
+                var rightRoot = FindNamedTransform(clone, "PL_HAND_R");
+                var leftRoot = FindNamedTransform(clone, "PL_HAND_L");
+                foreach (var renderer in clone.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (renderer == null)
+                        continue;
+                    var skinned = renderer as SkinnedMeshRenderer;
+                    var containsHandSkin = skinned != null &&
+                        (RendererUsesBoneTree(skinned, rightRoot) ||
+                         RendererUsesBoneTree(skinned, leftRoot));
+                    // Retain only the shared character skin that contains the hands.
+                    // All gun meshes, particles, magazines and effects stay invisible.
+                    renderer.enabled = containsHandSkin;
+                }
+                return clone;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR: could not create pre-weapon hands: " +
+                    exception.Message);
+                return null;
+            }
+        }
+
         private static void BindHeldItem(ItemInHand item)
         {
             if (item == motionItem)
@@ -901,6 +1639,8 @@ namespace MFNVRBridge
 
             RestorePreviousItem();
             motionItem = item;
+            ApplyCurrentNeighborhordeHands(motionItem);
+            EnsureCachedHandsMatchCurrentCharacter();
             ResetPhysicalWrenchSample();
             rightWrist = null;
             leftHandRoot = null;
@@ -927,14 +1667,21 @@ namespace MFNVRBridge
             originalItemLocalPosition = itemTransform.localPosition;
             originalItemLocalRotation = itemTransform.localRotation;
             originalItemLocalScale = itemTransform.localScale;
-            rightWrist = FindWrist(motionItem, "PL_HAND_R");
-            leftHandRoot = FindNamedTransform(motionItem, "PL_HAND_L");
+            var authoredRightRoot = FindNamedTransform(motionItem, "PL_HAND_R");
+            var authoredLeftRoot = FindNamedTransform(motionItem, "PL_HAND_L");
+            // Keep MFN's proven weapon hierarchy attached to its authored right wrist.
+            // The authored left wrist is a support-animation target; making it dominant
+            // allowed fire/reload animations to rotate the entire weapon. Handedness is
+            // represented visually by mirroring the hands, not by changing weapon bones.
+            rightWrist = FindWristUnder(authoredRightRoot);
+            leftHandRoot = authoredLeftRoot;
             leftWrist = FindWristUnder(leftHandRoot);
             itemTransform.SetParent(motionAnchor, true);
-            LoadLeftHandCalibration();
             NormalizeHandScale(itemTransform, rightWrist);
             ShrinkWrenchAssembly(motionItem);
             PrepareFloatingHands(motionItem);
+            motionItemRenderers = motionItem.GetComponentsInChildren<Renderer>(true);
+            motionItemMeshRenderers = motionItem.GetComponentsInChildren<MeshRenderer>(true);
             CacheLeftHandRenderers();
             CaptureOriginalLeftHandTransform();
             usingBakedLeftHand = leftHandVisualRoot != null &&
@@ -943,9 +1690,8 @@ namespace MFNVRBridge
                 usingBakedLeftHand = CreateIndependentLeftHandVisual();
             if (!usingBakedLeftHand)
                 DetachLeftHandFromWeaponAnimator();
-            if (menuPointerEnabled && menuRightHandVisualRoot == null)
-                CreateMenuRightHandVisual();
             EnsureLeftHandVisible();
+            ApplyDominantHandMirror(authoredRightRoot);
             Debug.Log("MFNVR: bound " + motionItem.name +
                 " to direct floating-hand tracking; rightWrist=" + (rightWrist != null) +
                 ", leftWrist=" + (leftWrist != null) +
@@ -953,14 +1699,95 @@ namespace MFNVRBridge
                 ", bakedLeftHand=" + usingBakedLeftHand + ".");
         }
 
+        private static void ApplyCurrentNeighborhordeHands(ItemInHand item)
+        {
+            var player = Player.current;
+            if (item == null || player == null || !player.GetIsMercenaries())
+                return;
+            try
+            {
+                foreach (var changer in item.GetComponentsInChildren<
+                    MercenariesHandsChanger>(true))
+                {
+                    if (changer != null)
+                        changer.SwitchToHands(MercenariesController.playerID);
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR: could not apply Neighborhorde hand skin: " +
+                    exception.Message);
+            }
+        }
+
+        private static void EnsureCachedHandsMatchCurrentCharacter()
+        {
+            var player = Player.current;
+            var characterKey = player != null && player.GetIsMercenaries()
+                ? 1000 + MercenariesController.playerID
+                : 0;
+            if (bakedHandCharacterKey == characterKey)
+                return;
+            DestroyCachedCharacterHandVisuals();
+            bakedHandCharacterKey = characterKey;
+            Debug.Log("MFNVR: rebuilding tracked hands for character key " +
+                characterKey + ".");
+        }
+
+        private static void DestroyCachedCharacterHandVisuals()
+        {
+            DestroyRuntimeHandVisual(ref leftHandVisualRoot,
+                ref leftHandVisualObject, ref leftHandVisualMesh);
+            DestroyRuntimeHandVisual(ref menuRightHandVisualRoot,
+                ref menuRightHandVisualObject, ref menuRightHandVisualMesh);
+            menuRightHandVisualTransforms = new Transform[0];
+            rightGripToMenuHandRotation = Quaternion.identity;
+            menuPointerVisualLayer = int.MinValue;
+            usingBakedLeftHand = false;
+        }
+
+        private static void DestroyRuntimeHandVisual(ref Transform root,
+            ref GameObject visualObject, ref Mesh mesh)
+        {
+            if (visualObject != null)
+            {
+                var renderer = visualObject.GetComponent<Renderer>();
+                if (renderer != null)
+                {
+                    foreach (var material in renderer.sharedMaterials)
+                        if (material != null)
+                            UnityEngine.Object.Destroy(material);
+                }
+            }
+            if (root != null)
+                UnityEngine.Object.Destroy(root.gameObject);
+            else if (visualObject != null)
+                UnityEngine.Object.Destroy(visualObject);
+            if (mesh != null)
+                UnityEngine.Object.Destroy(mesh);
+            root = null;
+            visualObject = null;
+            mesh = null;
+        }
+
         private static void RestorePreviousItem()
         {
             if (motionItem == null)
                 return;
 
+            var wasEmptyHandRig = motionItemIsEmptyHandRig;
+            RestoreDominantHandMirror();
             RestoreLeftHandToWeapon();
             var itemTransform = motionItem.transform;
-            if (itemTransform != null && itemTransform.parent == motionAnchor)
+            if (wasEmptyHandRig)
+            {
+                if (motionItem.gameObject != null)
+                {
+                    motionItem.gameObject.SetActive(false);
+                    UnityEngine.Object.Destroy(motionItem.gameObject);
+                }
+            }
+            else if (itemTransform != null && itemTransform.parent == motionAnchor)
             {
                 itemTransform.SetParent(originalItemParent, false);
                 itemTransform.localPosition = originalItemLocalPosition;
@@ -971,7 +1798,67 @@ namespace MFNVRBridge
                         Mathf.Max(0, originalItemParent.childCount - 1)));
             }
             motionItem = null;
+            motionItemIsEmptyHandRig = false;
+            motionItemRenderers = new Renderer[0];
+            motionItemMeshRenderers = new MeshRenderer[0];
             leftHandRenderers = new Renderer[0];
+        }
+
+        private static void ApplyDominantHandMirror(Transform authoredRightRoot)
+        {
+            RestoreDominantHandMirror();
+            if (!leftHandedMode || motionItem == null || rightWrist == null)
+                return;
+
+            // Mirror only the authored right hand around its own wrist. The wrist position,
+            // weapon, muzzle and animator hierarchy remain untouched, so this changes the
+            // visible hand from right to left without destabilizing weapon tracking.
+            mirroredDominantWrist = rightWrist;
+            originalDominantWristScale = rightWrist.localScale;
+            var mirroredScale = originalDominantWristScale;
+            mirroredScale.x = -mirroredScale.x;
+            rightWrist.localScale = mirroredScale;
+            dominantWristMirrored = true;
+
+            // Mirroring reverses the hand triangles' winding. Use private two-sided
+            // material instances on skinned renderers driven by this hand, then restore
+            // the originals when the item is changed or handedness is disabled.
+            foreach (var renderer in motionItem.GetComponentsInChildren<
+                         SkinnedMeshRenderer>(true))
+            {
+                if (renderer == null || authoredRightRoot == null ||
+                    !RendererUsesBoneTree(renderer, authoredRightRoot))
+                    continue;
+                var originals = renderer.sharedMaterials;
+                mirroredDominantMaterialRestores.Add(
+                    new KeyValuePair<Renderer, Material[]>(renderer, originals));
+                renderer.sharedMaterials = CreateTwoSidedHandMaterials(originals);
+            }
+            Debug.Log("MFNVR: mirrored the stable authored right-hand hierarchy for " +
+                "left-handed weapon rendering.");
+        }
+
+        private static void RestoreDominantHandMirror()
+        {
+            if (dominantWristMirrored && mirroredDominantWrist != null)
+                mirroredDominantWrist.localScale = originalDominantWristScale;
+            mirroredDominantWrist = null;
+            dominantWristMirrored = false;
+
+            foreach (var entry in mirroredDominantMaterialRestores)
+            {
+                var renderer = entry.Key;
+                if (renderer == null)
+                    continue;
+                var mirroredMaterials = renderer.sharedMaterials;
+                renderer.sharedMaterials = entry.Value;
+                foreach (var material in mirroredMaterials)
+                {
+                    if (material != null && Array.IndexOf(entry.Value, material) < 0)
+                        UnityEngine.Object.Destroy(material);
+                }
+            }
+            mirroredDominantMaterialRestores.Clear();
         }
 
         private static void CaptureOriginalLeftHandTransform()
@@ -1173,6 +2060,24 @@ namespace MFNVRBridge
                                 (inverseCanonical * worldNormal).normalized;
                         }
                     }
+                    if (leftHandedMode)
+                    {
+                        // The independent support mesh is authored as a left hand. Reflect
+                        // it across its wrist-local lateral axis so the physical right
+                        // controller displays a true mirrored right hand.
+                        for (var vertex = 0; vertex < canonicalVertices.Length; vertex++)
+                        {
+                            var mirroredVertex = canonicalVertices[vertex];
+                            mirroredVertex.x = -mirroredVertex.x;
+                            canonicalVertices[vertex] = mirroredVertex;
+                            if (haveBakedNormals)
+                            {
+                                var mirroredNormal = canonicalNormals[vertex];
+                                mirroredNormal.x = -mirroredNormal.x;
+                                canonicalNormals[vertex] = mirroredNormal;
+                            }
+                        }
+                    }
 
                     var keptTriangles = 0;
                     for (var subMesh = 0; subMesh < baked.subMeshCount; subMesh++)
@@ -1262,26 +2167,26 @@ namespace MFNVRBridge
 
         private static bool CreateMenuRightHandVisual()
         {
-            if (motionItem == null || rightWrist == null)
-                return false;
-            var rightRoot = FindNamedTransform(motionItem, "PL_HAND_R");
-            if (rightRoot == null)
+            var pointerRoot = FindNamedTransform(motionItem,
+                leftHandedMode ? "PL_HAND_L" : "PL_HAND_R");
+            var pointerWrist = FindWristUnder(pointerRoot);
+            if (motionItem == null || pointerRoot == null || pointerWrist == null)
                 return false;
             try
             {
                 foreach (var source in motionItem.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 {
                     if (source == null || source.sharedMesh == null ||
-                        !RendererUsesBoneTree(source, rightRoot))
+                        !RendererUsesBoneTree(source, pointerRoot))
                         continue;
 
-                    var handDirection = FindHandDirection(rightWrist);
-                    var palmNormal = FindPalmNormal(rightWrist, handDirection);
-                    var savedFingerRotations = ApplyMenuPointerFingerPose(rightWrist,
+                    var handDirection = FindHandDirection(pointerWrist);
+                    var palmNormal = FindPalmNormal(pointerWrist, handDirection);
+                    var savedFingerRotations = ApplyMenuPointerFingerPose(pointerWrist,
                         handDirection, palmNormal);
                     var baked = new Mesh
                     {
-                        name = source.sharedMesh.name + " (MFN VR Menu Right Hand Only)"
+                        name = source.sharedMesh.name + " (MFN VR Menu Dominant Hand Only)"
                     };
                     try
                     {
@@ -1299,8 +2204,8 @@ namespace MFNVRBridge
                         continue;
                     }
 
-                    var wristPosition = rightWrist.position;
-                    var boneReach = FindHandBoneReach(rightWrist, handDirection);
+                    var wristPosition = pointerWrist.position;
+                    var boneReach = FindHandBoneReach(pointerWrist, handDirection);
                     if (boneReach < 0.025f)
                     {
                         UnityEngine.Object.Destroy(baked);
@@ -1399,14 +2304,14 @@ namespace MFNVRBridge
                     baked.bounds = new Bounds(Vector3.forward * 0.065f,
                         new Vector3(0.36f, 0.36f, 0.36f));
 
-                    var rootObject = new GameObject("MFN VR Menu Right Hand Root");
+                    var rootObject = new GameObject("MFN VR Menu Dominant Hand Root");
                     menuRightHandVisualRoot = rootObject.transform;
                     rightGripToMenuHandRotation = Quaternion.Inverse(rightGripWorldRotation) *
                         canonicalRotation;
                     menuRightHandVisualRoot.SetPositionAndRotation(rightGripWorldPosition,
                         canonicalRotation);
 
-                    menuRightHandVisualObject = new GameObject("MFN VR Menu Right Hand Mesh");
+                    menuRightHandVisualObject = new GameObject("MFN VR Menu Dominant Hand Mesh");
                     var defaultLayer = LayerMask.NameToLayer("Default");
                     menuRightHandVisualObject.layer = defaultLayer >= 0 ? defaultLayer : 0;
                     menuRightHandVisualObject.transform.SetParent(menuRightHandVisualRoot, false);
@@ -1417,15 +2322,19 @@ namespace MFNVRBridge
                     visualRenderer.shadowCastingMode = ShadowCastingMode.Off;
                     visualRenderer.receiveShadows = false;
                     menuRightHandVisualMesh = baked;
+                    menuRightHandVisualTransforms = menuRightHandVisualRoot
+                        .GetComponentsInChildren<Transform>(true);
+                    menuPointerVisualLayer = int.MinValue;
                     rootObject.SetActive(false);
-                    Debug.Log("MFNVR: created independent right-hand menu pointer with " +
-                        keptTriangles + " triangles.");
+                    Debug.Log("MFNVR: created independent " +
+                        (leftHandedMode ? "left" : "right") +
+                        "-hand menu pointer with " + keptTriangles + " triangles.");
                     return true;
                 }
             }
             catch (Exception exception)
             {
-                Debug.LogWarning("MFNVR: could not create right-hand menu pointer: " +
+                Debug.LogWarning("MFNVR: could not create dominant-hand menu pointer: " +
                     exception);
             }
             return false;
@@ -1621,7 +2530,7 @@ namespace MFNVRBridge
                     }
                 }
                 foreach (var renderer in leftHandRenderers)
-                    if (renderer != null)
+                    if (renderer != null && !renderer.enabled)
                         renderer.enabled = true;
                 return;
             }
@@ -1635,14 +2544,15 @@ namespace MFNVRBridge
             }
             foreach (var renderer in leftHandRenderers)
             {
-                if (renderer != null)
+                if (renderer != null && !renderer.enabled)
                     renderer.enabled = true;
             }
         }
 
         private static bool ShouldShowAuthoredSupportHand()
         {
-            if (!twoHanded || !lockedSupportGripSteersWeapon || motionManager == null)
+            if (leftHandedMode || !twoHanded || !lockedSupportGripSteersWeapon ||
+                motionManager == null)
                 return false;
             var item = motionManager.GetCurrentItem();
             return item == InventoryItem.BoxingGloveShotgun ||
@@ -1662,8 +2572,8 @@ namespace MFNVRBridge
             Quaternion rawRightGripRotation;
             var rawRightAim = Vector3.zero;
             var rawRightAimRotation = Quaternion.identity;
-            motionPoseValid = TryGetControllerPose(1, false, out rawRightGrip,
-                out rawRightGripRotation) && TryGetControllerPose(1, true,
+            motionPoseValid = TryGetControllerPose(DominantHandIndex, false, out rawRightGrip,
+                out rawRightGripRotation) && TryGetControllerPose(DominantHandIndex, true,
                 out rawRightAim, out rawRightAimRotation);
             if (!motionPoseValid)
             {
@@ -1685,9 +2595,9 @@ namespace MFNVRBridge
             Quaternion rawLeftGripRotation;
             Vector3 rawLeftAim;
             Quaternion rawLeftAimRotation;
-            leftPoseValid = TryGetControllerPose(0, false, out rawLeftGrip,
+            leftPoseValid = TryGetControllerPose(SupportHandIndex, false, out rawLeftGrip,
                 out rawLeftGripRotation);
-            var leftAimValid = TryGetControllerPose(0, true, out rawLeftAim,
+            var leftAimValid = TryGetControllerPose(SupportHandIndex, true, out rawLeftAim,
                 out rawLeftAimRotation);
             if (leftPoseValid)
             {
@@ -1745,8 +2655,10 @@ namespace MFNVRBridge
             if (left == null || right == null ||
                 !TryGetEyePose(0, out rawLeftEyePosition, out rawLeftEyeRotation) ||
                 !TryGetEyePose(1, out rawRightEyePosition, out rawRightEyeRotation) ||
-                !TryGetControllerPose(1, true, out rawAimPosition, out rawAimRotation) ||
-                !TryGetControllerPose(1, false, out rawGripPosition, out rawGripRotation))
+                !TryGetControllerPose(DominantHandIndex, true, out rawAimPosition,
+                    out rawAimRotation) ||
+                !TryGetControllerPose(DominantHandIndex, false, out rawGripPosition,
+                    out rawGripRotation))
                 return false;
 
             // Eye and controller poses originate in the same OpenXR local space. Map
@@ -1775,10 +2687,9 @@ namespace MFNVRBridge
         {
             float stickX, stickY, trigger, squeeze;
             int primary, secondary, stickClick, menu;
-            var haveInput = MFN_GetControllerInput(0, out stickX, out stickY,
+            var haveInput = MFN_GetControllerInput(SupportHandIndex, out stickX, out stickY,
                 out trigger, out squeeze, out primary, out secondary,
                 out stickClick, out menu) != 0;
-            UpdateLeftHandNeutralCalibrationHold(haveInput && stickClick != 0);
             var gripPressed = haveInput && squeeze >= 0.72f;
             if (gripPressed && !previousLeftGripPressed && leftPoseValid && motionPoseValid)
             {
@@ -1822,9 +2733,9 @@ namespace MFNVRBridge
                             }
                         }
                         twoHanded = true;
-                        MFN_ApplyControllerHaptic(0, 0.42f, 0.065f, 0f);
-                        Debug.Log("MFNVR: left hand snapped and locked to " + supportName +
-                            "; press left grip again to release.");
+                        MFN_ApplyControllerHaptic(SupportHandIndex, 0.42f, 0.065f, 0f);
+                        Debug.Log("MFNVR: support hand snapped and locked to " + supportName +
+                            "; press support grip again to release.");
                     }
                 }
             }
@@ -1840,25 +2751,6 @@ namespace MFNVRBridge
             }
         }
 
-        private static void UpdateLeftHandNeutralCalibrationHold(bool held)
-        {
-            if (!held)
-            {
-                leftCalibrationHoldStarted = -1f;
-                leftCalibrationHoldTriggered = false;
-                return;
-            }
-
-            if (leftCalibrationHoldStarted < 0f)
-                leftCalibrationHoldStarted = Time.realtimeSinceStartup;
-            if (leftCalibrationHoldTriggered || !leftPoseValid || twoHanded ||
-                Time.realtimeSinceStartup - leftCalibrationHoldStarted < 3f)
-                return;
-
-            CalibrateLeftHandToNeutralReference();
-            leftCalibrationHoldTriggered = true;
-        }
-
         private static void ReleaseSupportGrip(bool movedTooFar)
         {
             if (!twoHanded)
@@ -1868,149 +2760,18 @@ namespace MFNVRBridge
             lockedSupportGripName = null;
             lockedSupportGripSteersWeapon = false;
             lockedSupportGripReleaseDistance = 0f;
-            MFN_ApplyControllerHaptic(0, movedTooFar ? 0.30f : 0.18f,
+            MFN_ApplyControllerHaptic(SupportHandIndex, movedTooFar ? 0.30f : 0.18f,
                 movedTooFar ? 0.055f : 0.045f, 0f);
             if (movedTooFar)
                 Debug.Log("MFNVR: automatically released " + releasedName +
                     " because the physical left hand moved beyond its grip tether.");
         }
 
-        private static void LoadLeftHandCalibration()
-        {
-            if (leftCalibrationLoaded)
-                return;
-            leftCalibrationLoaded = true;
-            if (PlayerPrefs.GetInt("MFNVR.LeftHandCalibration.Valid", 0) != 0)
-            {
-                userLeftGripToHandRotation = new Quaternion(
-                    PlayerPrefs.GetFloat("MFNVR.LeftHandCalibration.X", 0f),
-                    PlayerPrefs.GetFloat("MFNVR.LeftHandCalibration.Y", 0f),
-                    PlayerPrefs.GetFloat("MFNVR.LeftHandCalibration.Z", 0f),
-                    PlayerPrefs.GetFloat("MFNVR.LeftHandCalibration.W", 1f));
-                haveUserLeftHandCalibration = true;
-                Debug.Log("MFNVR: loaded persistent base left-hand controller alignment.");
-            }
-            LoadLeftHandCalibrationFile();
-        }
-
-        private static void LoadLeftHandCalibrationFile()
-        {
-            leftHandCalibrationFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "BepInEx", "config", "MFNVR.LeftHandCalibration.cfg");
-            try
-            {
-                if (!File.Exists(leftHandCalibrationFilePath))
-                    return;
-
-                var values = new Dictionary<string, float>(
-                    StringComparer.OrdinalIgnoreCase);
-                foreach (var line in File.ReadAllLines(leftHandCalibrationFilePath))
-                {
-                    var separator = line.IndexOf('=');
-                    if (separator <= 0)
-                        continue;
-                    float parsed;
-                    if (float.TryParse(line.Substring(separator + 1).Trim(),
-                        NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
-                        values[line.Substring(0, separator).Trim()] = parsed;
-                }
-                float x, y, z, w;
-                if (!values.TryGetValue("RotationX", out x) ||
-                    !values.TryGetValue("RotationY", out y) ||
-                    !values.TryGetValue("RotationZ", out z) ||
-                    !values.TryGetValue("RotationW", out w))
-                    return;
-                var loaded = new Quaternion(x, y, z, w);
-                var magnitude = Mathf.Sqrt(x * x + y * y + z * z + w * w);
-                if (magnitude < 0.5f)
-                    return;
-                userLeftGripToHandRotation = new Quaternion(x / magnitude, y / magnitude,
-                    z / magnitude, w / magnitude);
-                haveUserLeftHandCalibration = true;
-                Debug.Log("MFNVR: loaded permanent neutral left-hand calibration from " +
-                    leftHandCalibrationFilePath + ".");
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning("MFNVR: could not load left-hand calibration file: " +
-                    exception.Message);
-            }
-        }
-
-        private static void CalibrateLeftHandToNeutralReference()
-        {
-            var headRotation = haveWorldEyeData
-                ? Quaternion.Slerp(worldLeftEyeRotation, worldRightEyeRotation, 0.5f)
-                : motionRigRotation;
-            var headForward = Vector3.ProjectOnPlane(headRotation * Vector3.forward,
-                Vector3.up).normalized;
-            var headRight = Vector3.ProjectOnPlane(headRotation * Vector3.right,
-                Vector3.up).normalized;
-            if (headForward.sqrMagnitude < 0.5f)
-                headForward = motionRigRotation * Vector3.forward;
-            if (headRight.sqrMagnitude < 0.5f)
-                headRight = motionRigRotation * Vector3.right;
-
-            // Reference pose based on the Oculus dashboard hand shown by the user:
-            // fingers reach forward, slightly upward and inward, while the visible hand
-            // surface turns back toward the player's eyes. The wrist position remains the
-            // exact OpenXR grip position; only controller-to-hand orientation is calibrated.
-            var desiredFingerDirection = (headForward * 0.86f + Vector3.up * 0.42f +
-                headRight * 0.12f).normalized;
-            var desiredPalmNormal = (-headForward * 0.90f + Vector3.up * 0.24f +
-                headRight * 0.16f).normalized;
-            var desiredRotation = StableLookRotation(desiredFingerDirection,
-                desiredPalmNormal);
-            userLeftGripToHandRotation = Quaternion.Inverse(leftGripWorldRotation) *
-                desiredRotation;
-            haveUserLeftHandCalibration = true;
-            SaveLeftHandCalibrationFile();
-            MFN_ApplyControllerHaptic(0, 0.58f, 0.11f, 0f);
-        }
-
-        private static void SaveLeftHandCalibrationFile()
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(leftHandCalibrationFilePath))
-                {
-                    leftHandCalibrationFilePath = Path.Combine(
-                        AppDomain.CurrentDomain.BaseDirectory, "BepInEx", "config",
-                        "MFNVR.LeftHandCalibration.cfg");
-                }
-                var directory = Path.GetDirectoryName(leftHandCalibrationFilePath);
-                if (!string.IsNullOrEmpty(directory))
-                    Directory.CreateDirectory(directory);
-                File.WriteAllText(leftHandCalibrationFilePath,
-                    "# MFNVR permanent neutral left-hand calibration\r\n" +
-                    "# Recalibrate by holding the left stick button for 3 seconds.\r\n" +
-                    "ReferencePose=OculusNeutral\r\n" +
-                    "RotationX=" + userLeftGripToHandRotation.x.ToString("R",
-                        CultureInfo.InvariantCulture) + "\r\n" +
-                    "RotationY=" + userLeftGripToHandRotation.y.ToString("R",
-                        CultureInfo.InvariantCulture) + "\r\n" +
-                    "RotationZ=" + userLeftGripToHandRotation.z.ToString("R",
-                        CultureInfo.InvariantCulture) + "\r\n" +
-                    "RotationW=" + userLeftGripToHandRotation.w.ToString("R",
-                        CultureInfo.InvariantCulture) + "\r\n");
-                Debug.Log("MFNVR: calibrated the tracked left hand to the neutral " +
-                    "reference pose and saved it permanently to " +
-                    leftHandCalibrationFilePath + ".");
-            }
-            catch (Exception exception)
-            {
-                Debug.LogWarning("MFNVR: could not save left-hand calibration file: " +
-                    exception.Message);
-            }
-        }
-
         private static Quaternion GetTrackedLeftHandVisualRotation()
         {
-            var baseRotation = haveUserLeftHandCalibration
-                ? leftGripWorldRotation * userLeftGripToHandRotation
-                : StableLookRotation(leftAimWorldRotation * Vector3.forward,
-                    leftAimWorldRotation * Vector3.right);
-            return baseRotation;
+            if (leftHandedMode)
+                return leftAimWorldRotation;
+            return leftGripWorldRotation * SavedLeftGripToHandRotation;
         }
 
         private static bool TryGetSupportGripTarget(out Vector3 position,
@@ -2096,7 +2857,7 @@ namespace MFNVRBridge
             var forward = muzzle.forward.normalized;
             var weaponBounds = new Bounds();
             var haveWeaponBounds = false;
-            foreach (var renderer in motionItem.GetComponentsInChildren<Renderer>(true))
+            foreach (var renderer in motionItemRenderers)
             {
                 if (!IsConclusionGripGeometry(renderer))
                     continue;
@@ -2115,7 +2876,7 @@ namespace MFNVRBridge
 
             Renderer best = null;
             var bestScore = float.NegativeInfinity;
-            foreach (var renderer in motionItem.GetComponentsInChildren<Renderer>(true))
+            foreach (var renderer in motionItemRenderers)
             {
                 if (!IsConclusionGripGeometry(renderer))
                     continue;
@@ -2327,19 +3088,30 @@ namespace MFNVRBridge
 
         private static void UpdateGunRay()
         {
-            gunRayOrigin = rightAimWorldPosition;
+            var nextOrigin = rightAimWorldPosition;
             var aimUp = rightAimWorldRotation * Vector3.up;
-            gunRayDirection = Quaternion.AngleAxis(GunAimYawCorrectionDegrees, aimUp) *
+            var nextDirection = Quaternion.AngleAxis(GunAimYawCorrectionDegrees, aimUp) *
                 (rightAimWorldRotation * Vector3.forward);
-            if (gunRayDirection.sqrMagnitude < 0.5f)
-                gunRayDirection = Vector3.forward;
-            gunRayDirection.Normalize();
+            if (nextDirection.sqrMagnitude < 0.5f)
+                nextDirection = Vector3.forward;
+            nextDirection.Normalize();
 
-            var mask = LayerMask.GetMask("Enemy", "Level", "Default",
-                "DontInteractWithPlayer");
+            // Reticle, late hand pose and projectile hooks can request the same ray several
+            // times in one frame. Reuse it unless the late controller sample actually moved.
+            if (lastGunRayFrame == Time.frameCount &&
+                (nextOrigin - lastGunRayOrigin).sqrMagnitude < 0.00000025f &&
+                Vector3.Dot(nextDirection, lastGunRayDirection) > 0.999999f)
+                return;
+            lastGunRayFrame = Time.frameCount;
+            lastGunRayOrigin = nextOrigin;
+            lastGunRayDirection = nextDirection;
+            gunRayOrigin = nextOrigin;
+            gunRayDirection = nextDirection;
+
             RaycastHit hit;
             var rayStart = gunRayOrigin + gunRayDirection * 0.035f;
-            if (Physics.Raycast(rayStart, gunRayDirection, out hit, 1000f, mask,
+            if (Physics.Raycast(rayStart, gunRayDirection, out hit, 1000f,
+                GetGunRayMask(),
                 QueryTriggerInteraction.Ignore))
                 gunRayTarget = hit.point;
             else
@@ -2350,9 +3122,10 @@ namespace MFNVRBridge
         {
             if (motionManager == null || motionItem == null)
                 return false;
-            var itemName = motionManager.GetCurrentItem().ToString();
-            return itemName.IndexOf("Gun", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                itemName.IndexOf("Shotgun", StringComparison.OrdinalIgnoreCase) >= 0;
+            var item = motionManager.GetCurrentItem();
+            return item == InventoryItem.BoxingGloveGun ||
+                   item == InventoryItem.BoxingGloveShotgun ||
+                   item == InventoryItem.FinalGun;
         }
 
         private static bool ShouldShowVrAimSight()
@@ -2365,8 +3138,7 @@ namespace MFNVRBridge
         {
             if (motionManager == null || motionItem == null)
                 return false;
-            return motionManager.GetCurrentItem().ToString().IndexOf("Wrench",
-                StringComparison.OrdinalIgnoreCase) >= 0;
+            return motionManager.GetCurrentItem() == InventoryItem.Wrench;
         }
 
         private static bool SuppressFlatWrenchPrefix(EquippedManager __instance)
@@ -2412,7 +3184,7 @@ namespace MFNVRBridge
                 return;
             lastWrenchPhysicsFrame = Time.frameCount;
 
-            if (!motionPoseValid || !IsWrenchEquipped())
+            if (settingsMenuOpen || !motionPoseValid || !IsWrenchEquipped())
             {
                 wrenchSampleValid = false;
                 ResetPhysicalWrenchSwing();
@@ -2526,9 +3298,9 @@ namespace MFNVRBridge
             var headWorldPosition = rightGripWorldPosition +
                 reachDirectionWorldNow * PhysicalWrenchReach;
             var sweepStart = headWorldPosition - physicalDeltaWorld;
-            var hits = Physics.SphereCastAll(sweepStart, PhysicalWrenchHeadRadius,
-                physicalDeltaWorld / sweepDistance, sweepDistance, ~0,
-                QueryTriggerInteraction.Collide);
+            var hitCount = Physics.SphereCastNonAlloc(sweepStart,
+                PhysicalWrenchHeadRadius, physicalDeltaWorld / sweepDistance,
+                wrenchSweepHits, sweepDistance, ~0, QueryTriggerInteraction.Collide);
 
             // Only the wrench head and its actual swept arc can hit. The previous full-shaft
             // capsule was the source of stationary proximity hits shown in the recording.
@@ -2538,8 +3310,9 @@ namespace MFNVRBridge
             // a high-power hit after the hand has nearly stopped.
             var impactSpeed = Mathf.Min(wrenchSwingPeakSpeed,
                 Mathf.Min(speed, averageSwingSpeed * 1.20f));
-            foreach (var hit in hits)
+            for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
+                var hit = wrenchSweepHits[hitIndex];
                 var point = hit.point == Vector3.zero && hit.collider != null
                     ? hit.collider.ClosestPoint(headWorldPosition)
                     : hit.point;
@@ -2559,11 +3332,12 @@ namespace MFNVRBridge
             // SphereCast does not report a collider when the sweep begins inside it.
             // A final head-only overlap covers that case, with all distance/speed gates
             // above still required. It never checks the shaft or the space near the hand.
-            var colliders = Physics.OverlapSphere(headWorldPosition,
-                PhysicalWrenchHeadRadius, ~0,
+            var colliderCount = Physics.OverlapSphereNonAlloc(headWorldPosition,
+                PhysicalWrenchHeadRadius, wrenchOverlapColliders, ~0,
                 QueryTriggerInteraction.Collide);
-            foreach (var collider in colliders)
+            for (var colliderIndex = 0; colliderIndex < colliderCount; colliderIndex++)
             {
+                var collider = wrenchOverlapColliders[colliderIndex];
                 if (collider == null)
                     continue;
                 var point = collider.ClosestPoint(headWorldPosition);
@@ -2586,7 +3360,7 @@ namespace MFNVRBridge
             var bestDistanceSquared = 0f;
             if (motionItem != null)
             {
-                foreach (var renderer in motionItem.GetComponentsInChildren<MeshRenderer>(true))
+                foreach (var renderer in motionItemMeshRenderers)
                 {
                     if (renderer == null || !renderer.enabled || IsUnderHand(renderer.transform))
                         continue;
@@ -2656,7 +3430,8 @@ namespace MFNVRBridge
             }
             try
             {
-                MFN_ApplyControllerHaptic(1, Mathf.Clamp01(speed / 10.0f), 0.07f, 0f);
+                MFN_ApplyControllerHaptic(DominantHandIndex,
+                    Mathf.Clamp01(speed / 10.0f), 0.07f, 0f);
             }
             catch (EntryPointNotFoundException)
             {
@@ -2672,12 +3447,13 @@ namespace MFNVRBridge
         {
             if (!aimingDotEnabled || IsPhysicalInventoryActive() || !motionPoseValid || !ShouldShowVrAimSight())
             {
-                if (muzzleSight != null)
+                if (muzzleSight != null && muzzleSight.activeSelf)
                     muzzleSight.SetActive(false);
                 return;
             }
             EnsureMuzzleSight();
-            muzzleSight.SetActive(true);
+            if (!muzzleSight.activeSelf)
+                muzzleSight.SetActive(true);
             muzzleSight.transform.position = gunRayOrigin + gunRayDirection * aimingDotDistance;
             muzzleSight.transform.localScale = Vector3.one * aimingDotSize;
         }
@@ -2711,17 +3487,17 @@ namespace MFNVRBridge
 
             UpdateGunRay();
             var shotDirection = gunRayDirection;
-            var itemName = motionManager != null
-                ? motionManager.GetCurrentItem().ToString()
-                : string.Empty;
-            if (itemName.IndexOf("Shotgun", StringComparison.OrdinalIgnoreCase) >= 0)
+            var currentItem = motionManager != null
+                ? motionManager.GetCurrentItem()
+                : InventoryItem.NONE;
+            if (currentItem == InventoryItem.BoxingGloveShotgun)
             {
                 shotDirection = Quaternion.AngleAxis(UnityEngine.Random.Range(-8f, 8f),
                     rightAimWorldRotation * Vector3.up) *
                     Quaternion.AngleAxis(UnityEngine.Random.Range(-8f, 8f),
                     rightAimWorldRotation * Vector3.right) * shotDirection;
             }
-            else if (itemName.IndexOf("FinalGun", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (currentItem == InventoryItem.FinalGun)
             {
                 shotDirection = Quaternion.AngleAxis(UnityEngine.Random.Range(-5f, 5f),
                     rightAimWorldRotation * Vector3.up) *
@@ -2742,7 +3518,8 @@ namespace MFNVRBridge
 
             // MFN's desktop reticle is head/camera locked and must never be visible in VR,
             // including while holding the wrench, grenades, ordinary items, or no weapon.
-            renderer.enabled = false;
+            if (renderer.enabled)
+                renderer.enabled = false;
             if (!motionPoseValid || !ShouldShowVrAimSight())
             {
                 if (muzzleSight != null)
@@ -2779,17 +3556,15 @@ namespace MFNVRBridge
             var neck = neckVerticalField.GetValue(player) as Transform;
             if (neck == null)
                 return false;
-            var mask = (1 << LayerMask.NameToLayer("Default")) |
-                (1 << LayerMask.NameToLayer("Level")) |
-                (1 << LayerMask.NameToLayer("DefaultHover")) |
-                (1 << LayerMask.NameToLayer("LevelProjectilePassthrough"));
+            var mask = GetGameplayInteractionMask();
             var reach = 3f;
-            if (getReachDistanceMethod != null)
+            try
             {
-                var value = getReachDistanceMethod.Invoke(player, null);
-                if (value is float configuredReach && configuredReach > 0.1f)
+                var configuredReach = player.GetReachDistance();
+                if (configuredReach > 0.1f)
                     reach = configuredReach;
             }
+            catch { }
 
             var origin = (worldLeftEyePosition + worldRightEyePosition) * 0.5f;
             var rotation = Quaternion.Slerp(worldLeftEyeRotation, worldRightEyeRotation, 0.5f);
@@ -2805,12 +3580,13 @@ namespace MFNVRBridge
                 maximumCandidateDistance = Mathf.Min(reach, vrBlock.distance + 0.25f);
 
             const float assistRadius = 0.10f;
-            var hits = Physics.SphereCastAll(origin, assistRadius, direction, reach, mask,
-                QueryTriggerInteraction.Collide);
+            var hitCount = Physics.SphereCastNonAlloc(origin, assistRadius, direction,
+                interactionAssistHits, reach, mask, QueryTriggerInteraction.Collide);
             Interactable candidate = null;
             var candidateDistance = float.PositiveInfinity;
-            foreach (var hit in hits)
+            for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
+                var hit = interactionAssistHits[hitIndex];
                 if (hit.collider == null || hit.distance > maximumCandidateDistance)
                     continue;
                 var interactable = hit.collider.GetComponent<Interactable>();
@@ -3264,7 +4040,8 @@ namespace MFNVRBridge
             // The raw OpenXR A button is consumed by UpdateMenuPointerInteraction and
             // applied to the ray target. Block only its virtual-gamepad copy here so
             // keyboard/mouse bindings and non-pointer gameplay remain untouched.
-            return menuPointerEnabled && menuPointerInputActive &&
+            return (settingsMenuOpen ||
+                    (menuPointerEnabled && menuPointerInputActive)) &&
                    context.control != null && context.control.device is Gamepad;
         }
 
@@ -3272,8 +4049,14 @@ namespace MFNVRBridge
         {
             if (source == null)
                 return;
+            var sourceId = source.GetInstanceID();
+            Camera cachedSource;
+            if (sourceBackbufferOptimizers.TryGetValue(sourceId, out cachedSource) &&
+                ReferenceEquals(cachedSource, source))
+                return;
             if (source.GetComponent<SourceBackbufferOptimizer>() == null)
                 source.gameObject.AddComponent<SourceBackbufferOptimizer>();
+            sourceBackbufferOptimizers[sourceId] = source;
         }
 
         private static InventoryInWorld GetPhysicalInventory(Player player = null)
@@ -3306,15 +4089,37 @@ namespace MFNVRBridge
 
         private static bool IsUiModeActive()
         {
-            if (IsPhysicalInventoryActive())
+            return IsUiModeActive(Player.current, GetPhysicalInventory());
+        }
+
+        private static bool IsUiModeActive(Player player, InventoryInWorld inventory)
+        {
+            if (settingsMenuOpen)
                 return true;
-            var player = Player.current;
+            if (inventory != null)
+                return true;
             if (player == null)
                 return false;
             return ReadBooleanField(inventoryControlsEnabledField, player) ||
                    ReadBooleanField(menuControlsEnabledField, player) ||
                    ReadBooleanField(mapControlsEnabledField, player) ||
                    ReadBooleanField(pauseMenuEnabledField, player) ||
+                   ReadBooleanField(investigateControlsEnabledField, player);
+        }
+
+        private static bool IsNativeMenuPointerContext(Player player,
+            InventoryInWorld inventory)
+        {
+            if (settingsMenuOpen || !menuPointerEnabled || player == null)
+                return false;
+            if (inventory != null)
+                return true;
+            // Main, pause and files are handled by UpdateFlatMenuPointer. The native ray
+            // exists only for real-camera inventory and point-and-click interaction views.
+            if (ShouldUseFlatUiScreen())
+                return false;
+            return ReadBooleanField(inventoryControlsEnabledField, player) ||
+                   ReadBooleanField(mapControlsEnabledField, player) ||
                    ReadBooleanField(investigateControlsEnabledField, player);
         }
 
@@ -3363,12 +4168,16 @@ namespace MFNVRBridge
             // layers. The old flat capture camera included them, while the ordinary world
             // camera intentionally does not. Add them only for real-camera UI states;
             // toolbox inventories use their separate path and remain outline-free.
-            var hoverMask = 0;
-            AddNamedLayer(ref hoverMask, "DefaultHover");
-            AddNamedLayer(ref hoverMask, "ExamineHover");
-            AddNamedLayer(ref hoverMask, "InvisibleHover");
-            left.cullingMask |= hoverMask;
-            right.cullingMask |= hoverMask;
+            if (!worldAttachedUiHoverMaskReady)
+            {
+                worldAttachedUiHoverMask = 0;
+                AddNamedLayer(ref worldAttachedUiHoverMask, "DefaultHover");
+                AddNamedLayer(ref worldAttachedUiHoverMask, "ExamineHover");
+                AddNamedLayer(ref worldAttachedUiHoverMask, "InvisibleHover");
+                worldAttachedUiHoverMaskReady = true;
+            }
+            left.cullingMask |= worldAttachedUiHoverMask;
+            right.cullingMask |= worldAttachedUiHoverMask;
             SetStereoOutlineActive(left, right, source, true);
         }
 
@@ -3408,6 +4217,78 @@ namespace MFNVRBridge
             var layer = LayerMask.NameToLayer(layerName);
             if (layer >= 0 && layer < 32)
                 layerMask |= 1 << layer;
+        }
+
+        private static int GetCachedLayer(ref int cache, string layerName,
+            int fallback = -1)
+        {
+            if (cache == int.MinValue)
+            {
+                cache = LayerMask.NameToLayer(layerName);
+                if (cache < 0)
+                    cache = fallback;
+            }
+            return cache;
+        }
+
+        private static int GetGunRayMask()
+        {
+            if (!gunRayMaskReady)
+            {
+                gunRayMask = LayerMask.GetMask("Enemy", "Level", "Default",
+                    "DontInteractWithPlayer");
+                gunRayMaskReady = true;
+            }
+            return gunRayMask;
+        }
+
+        private static int GetGameplayInteractionMask()
+        {
+            if (!gameplayInteractionMaskReady)
+            {
+                AddNamedLayer(ref gameplayInteractionMask, "Default");
+                AddNamedLayer(ref gameplayInteractionMask, "Level");
+                AddNamedLayer(ref gameplayInteractionMask, "DefaultHover");
+                AddNamedLayer(ref gameplayInteractionMask, "LevelProjectilePassthrough");
+                gameplayInteractionMaskReady = true;
+            }
+            return gameplayInteractionMask;
+        }
+
+        private static int GetPointerInteractionMask()
+        {
+            if (!pointerInteractionMaskReady)
+            {
+                AddNamedLayer(ref pointerInteractionMask, "Inventory");
+                AddNamedLayer(ref pointerInteractionMask, "Examine");
+                AddNamedLayer(ref pointerInteractionMask, "ExamineHover");
+                AddNamedLayer(ref pointerInteractionMask, "UI");
+                AddNamedLayer(ref pointerInteractionMask, "InventoryHover");
+                AddNamedLayer(ref pointerInteractionMask, "InvisibleHover");
+                AddNamedLayer(ref pointerInteractionMask, "Invisible");
+                AddNamedLayer(ref pointerInteractionMask, "Default");
+                AddNamedLayer(ref pointerInteractionMask, "Level");
+                AddNamedLayer(ref pointerInteractionMask, "DefaultHover");
+                AddNamedLayer(ref pointerInteractionMask, "LevelProjectilePassthrough");
+                pointerInteractionMaskReady = true;
+            }
+            return pointerInteractionMask;
+        }
+
+        private static int GetPointerUiLayerMask()
+        {
+            if (!pointerUiLayerMaskReady)
+            {
+                AddNamedLayer(ref pointerUiLayerMask, "Inventory");
+                AddNamedLayer(ref pointerUiLayerMask, "Examine");
+                AddNamedLayer(ref pointerUiLayerMask, "ExamineHover");
+                AddNamedLayer(ref pointerUiLayerMask, "UI");
+                AddNamedLayer(ref pointerUiLayerMask, "InventoryHover");
+                AddNamedLayer(ref pointerUiLayerMask, "InvisibleHover");
+                AddNamedLayer(ref pointerUiLayerMask, "Invisible");
+                pointerUiLayerMaskReady = true;
+            }
+            return pointerUiLayerMask;
         }
 
         private static bool ReadBooleanField(FieldInfo field, object instance)
@@ -3577,11 +4458,27 @@ namespace MFNVRBridge
             var itemBox = ItemBoxParent.current;
             if (itemBox == null)
                 return 0;
+            var upper = itemBox.GetInventory();
+            var drawer = itemBox.GetInventoryInWorld();
+            if (cachedToolboxVisualsReady &&
+                ReferenceEquals(cachedToolboxVisualItemBox, itemBox) &&
+                ReferenceEquals(cachedToolboxVisualUpper, upper) &&
+                ReferenceEquals(cachedToolboxVisualDrawer, drawer))
+                return cachedToolboxVisualLayerMask;
 
-            var layerMask = 0;
-            AddToolboxInventoryVisuals(itemBox.GetInventory(), ref layerMask);
-            AddToolboxInventoryVisuals(itemBox.GetInventoryInWorld(), ref layerMask);
-            return layerMask;
+            cachedToolboxVisualItemBox = itemBox;
+            cachedToolboxVisualUpper = upper;
+            cachedToolboxVisualDrawer = drawer;
+            cachedToolboxVisualLayerMask = 0;
+            AddToolboxInventoryVisuals(upper, ref cachedToolboxVisualLayerMask);
+            AddToolboxInventoryVisuals(drawer, ref cachedToolboxVisualLayerMask);
+            cachedToolboxVisualsReady = true;
+            return cachedToolboxVisualLayerMask;
+        }
+
+        internal static void InvalidateToolboxVisualCache()
+        {
+            cachedToolboxVisualsReady = false;
         }
 
         private static void PositionToolboxDrawerForStereo(Camera source)
@@ -3746,7 +4643,6 @@ namespace MFNVRBridge
                 : null;
             physicalInventoryHeldItem = null;
             physicalInventoryPositioned = false;
-            previousInventoryGripPressed = false;
             previousInventoryTriggerPressed = false;
             previousInventoryPrimaryPressed = false;
             previousInventoryRotatePressed = false;
@@ -3762,7 +4658,6 @@ namespace MFNVRBridge
             physicalInventoryRows = null;
             physicalInventoryHeldItem = null;
             physicalInventoryPositioned = false;
-            previousInventoryGripPressed = false;
             previousInventoryTriggerPressed = false;
             previousInventoryPrimaryPressed = false;
             previousInventoryRotatePressed = false;
@@ -3776,9 +4671,10 @@ namespace MFNVRBridge
             if (inventoryPointerFrame == Time.frameCount)
                 return;
             inventoryPointerFrame = Time.frameCount;
-            if (!menuPointerEnabled || player == null || !motionPoseValid)
+            if (!motionPoseValid || !IsNativeMenuPointerContext(player, inventory))
             {
-                ResetMenuPointerInteraction();
+                if (menuPointerRuntimeActive)
+                    ResetMenuPointerInteraction();
                 return;
             }
 
@@ -3797,15 +4693,16 @@ namespace MFNVRBridge
                 }
             }
 
+            menuPointerRuntimeActive = true;
             menuPointerInputActive = true;
             DisableInventorySquareHighlights(inventory);
             if (inventory == null || IsToolboxInventory(inventory))
                 ApplyInteractionPointerCameraSpace();
             PoseMenuPointerHand();
-            SetMenuPointerVisualLayer(LayerMask.NameToLayer("Default"));
+            SetMenuPointerVisualLayer(GetCachedLayer(ref defaultLayer, "Default", 0));
             float stickX, stickY, trigger, squeeze;
             int primary, secondary, stickClick, menu;
-            var haveInput = MFN_GetControllerInput(1, out stickX, out stickY,
+            var haveInput = MFN_GetControllerInput(DominantHandIndex, out stickX, out stickY,
                 out trigger, out squeeze, out primary, out secondary,
                 out stickClick, out menu) != 0;
             var triggerPressed = haveInput && trigger >= 0.72f;
@@ -3815,12 +4712,13 @@ namespace MFNVRBridge
             var primaryStarted = primaryPressed && !previousInventoryPrimaryPressed;
             var pointerSelectStarted = triggerStarted || primaryStarted;
             var rotateStarted = rotatePressed && !previousInventoryRotatePressed;
-            float leftStickX, leftStickY, leftTrigger, leftSqueeze;
-            int leftPrimary, leftSecondary, leftStickClick, leftMenu;
-            var haveLeftInput = MFN_GetControllerInput(0, out leftStickX, out leftStickY,
-                out leftTrigger, out leftSqueeze, out leftPrimary, out leftSecondary,
-                out leftStickClick, out leftMenu) != 0;
-            var leftTriggerPressed = haveLeftInput && leftTrigger >= 0.72f;
+            float supportStickX, supportStickY, supportTrigger, supportSqueeze;
+            int supportPrimary, supportSecondary, supportStickClick, supportMenu;
+            var haveSupportInput = MFN_GetControllerInput(SupportHandIndex,
+                out supportStickX, out supportStickY, out supportTrigger,
+                out supportSqueeze, out supportPrimary, out supportSecondary,
+                out supportStickClick, out supportMenu) != 0;
+            var leftTriggerPressed = haveSupportInput && supportTrigger >= 0.72f;
             var leftTriggerStarted = leftTriggerPressed &&
                 !previousMenuPointerLeftTriggerPressed;
             var ray = new Ray(rightAimWorldPosition,
@@ -3967,8 +4865,10 @@ namespace MFNVRBridge
             {
                 targetInventory = heldInventory;
                 pointedItem = null;
+                singlePointerInventory.Clear();
+                AddPointerInventory(singlePointerInventory, heldInventory);
                 pointedSquare = FindPointerInventorySquare(ray,
-                    new List<InventoryInWorld> { heldInventory }, out targetInventory,
+                    singlePointerInventory, out targetInventory,
                     ref point);
             }
 
@@ -3990,14 +4890,14 @@ namespace MFNVRBridge
                 player.SetCurrentInventory(activeInventory);
                 activeInventory.CheckOpenDropdown();
                 if (activeInventory.GetIsInDropdown())
-                    MFN_ApplyControllerHaptic(0, 0.28f, 0.045f, 0f);
+                    MFN_ApplyControllerHaptic(SupportHandIndex, 0.28f, 0.045f, 0f);
             }
 
             if (activeInventory != null && rotateStarted && heldItem != null &&
                 !activeInventory.GetIsInDropdown())
             {
                 InvokeInventoryRotate(activeInventory);
-                MFN_ApplyControllerHaptic(1, 0.22f, 0.035f, 0f);
+                MFN_ApplyControllerHaptic(DominantHandIndex, 0.22f, 0.035f, 0f);
             }
 
             if (activeInventory != null && triggerStarted &&
@@ -4014,7 +4914,7 @@ namespace MFNVRBridge
                     player.PickUpInventoryItem(pointedItem);
                     physicalInventoryHeldItem = activeInventory.GetCurrentlyHoldingItem();
                     if (physicalInventoryHeldItem != null)
-                        MFN_ApplyControllerHaptic(1, 0.35f, 0.055f, 0f);
+                        MFN_ApplyControllerHaptic(DominantHandIndex, 0.35f, 0.055f, 0f);
                 }
                 else if (heldItem != null && pointedSquare != null)
                 {
@@ -4026,7 +4926,8 @@ namespace MFNVRBridge
                     inventoryCurrentSquareField?.SetValue(activeInventory, pointedSquare);
                     var placed = InvokeInventoryPutDown(player, activeInventory);
                     physicalInventoryHeldItem = activeInventory.GetCurrentlyHoldingItem();
-                    MFN_ApplyControllerHaptic(1, placed ? 0.30f : 0.12f,
+                    MFN_ApplyControllerHaptic(DominantHandIndex,
+                        placed ? 0.30f : 0.12f,
                         placed ? 0.050f : 0.030f, 0f);
                 }
             }
@@ -4041,15 +4942,15 @@ namespace MFNVRBridge
         private static List<InventoryInWorld> GetPointerInventories(
             InventoryInWorld initialInventory)
         {
-            var result = new List<InventoryInWorld>(3);
-            AddPointerInventory(result, initialInventory);
+            pointerInventories.Clear();
+            AddPointerInventory(pointerInventories, initialInventory);
             var itemBox = ItemBoxParent.current;
             if (itemBox != null)
             {
-                AddPointerInventory(result, itemBox.GetInventory());
-                AddPointerInventory(result, itemBox.GetInventoryInWorld());
+                AddPointerInventory(pointerInventories, itemBox.GetInventory());
+                AddPointerInventory(pointerInventories, itemBox.GetInventoryInWorld());
             }
-            return result;
+            return pointerInventories;
         }
 
         private static void AddPointerInventory(List<InventoryInWorld> inventories,
@@ -4063,12 +4964,24 @@ namespace MFNVRBridge
         private static void DisableInventorySquareHighlights(
             InventoryInWorld initialInventory)
         {
+            var sceneHandle = UnityEngine.SceneManagement.SceneManager
+                .GetActiveScene().handle;
+            if (suppressedInventoryHighlightSceneHandle != sceneHandle)
+            {
+                suppressedInventoryHighlightSceneHandle = sceneHandle;
+                suppressedInventoryHighlightRows.Clear();
+            }
             var inventories = GetPointerInventories(initialInventory);
             foreach (var inventory in inventories)
             {
                 var rows = inventoryRowsField?.GetValue(inventory) as
                     InventoryRowOfSquares[];
                 if (rows == null)
+                    continue;
+                var inventoryId = inventory.GetInstanceID();
+                InventoryRowOfSquares[] suppressedRows;
+                if (suppressedInventoryHighlightRows.TryGetValue(inventoryId,
+                        out suppressedRows) && ReferenceEquals(suppressedRows, rows))
                     continue;
                 foreach (var row in rows)
                 {
@@ -4088,6 +5001,7 @@ namespace MFNVRBridge
                             hoverRenderer.enabled = false;
                     }
                 }
+                suppressedInventoryHighlightRows[inventoryId] = rows;
             }
         }
 
@@ -4166,9 +5080,10 @@ namespace MFNVRBridge
         {
             if (dropdown == null)
                 return;
-            var targetLayer = LayerMask.NameToLayer("InventoryCursor");
+            var targetLayer = GetCachedLayer(ref inventoryCursorLayer,
+                "InventoryCursor");
             if (targetLayer < 0)
-                targetLayer = LayerMask.NameToLayer("Inventory");
+                targetLayer = GetCachedLayer(ref inventoryLayer, "Inventory");
             if (targetLayer < 0)
                 targetLayer = 0;
             MoveDropdownHierarchyToLayer(dropdown.transform, targetLayer);
@@ -4240,14 +5155,21 @@ namespace MFNVRBridge
         {
             if (root == null)
                 return;
-            foreach (var child in root.GetComponentsInChildren<Transform>(true))
+            Transform[] children;
+            if (!dropdownTransformCache.TryGetValue(root, out children) || children == null)
+            {
+                children = root.GetComponentsInChildren<Transform>(true);
+                dropdownTransformCache[root] = children;
+            }
+            foreach (var child in children)
             {
                 if (child == null)
                     continue;
                 var gameObject = child.gameObject;
                 if (!inventoryDropdownOriginalLayers.ContainsKey(gameObject))
                     inventoryDropdownOriginalLayers.Add(gameObject, gameObject.layer);
-                gameObject.layer = layer;
+                if (gameObject.layer != layer)
+                    gameObject.layer = layer;
             }
         }
 
@@ -4298,9 +5220,9 @@ namespace MFNVRBridge
                 if (triggerStarted)
                 {
                     Debug.Log("MFNVR: Selected inventory confirmation option " +
-                        nodes[index].GetText() + " with the right-hand pointer.");
+                        nodes[index].GetText() + " with the dominant-hand pointer.");
                     confirmer.DoAction();
-                    MFN_ApplyControllerHaptic(1, 0.28f, 0.045f, 0f);
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.28f, 0.045f, 0f);
                 }
                 return true;
             }
@@ -4316,9 +5238,9 @@ namespace MFNVRBridge
             {
                 Debug.Log("MFNVR: Selected inventory dropdown option " +
                     optionNodes[optionIndex].GetText() +
-                    " with the right-hand pointer.");
+                    " with the dominant-hand pointer.");
                 dropdown.CheckForConfirm();
-                MFN_ApplyControllerHaptic(1, 0.28f, 0.045f, 0f);
+                MFN_ApplyControllerHaptic(DominantHandIndex, 0.28f, 0.045f, 0f);
             }
             return true;
         }
@@ -4330,28 +5252,32 @@ namespace MFNVRBridge
             point = ray.GetPoint(3f);
             if (inventory == null || nodes == null)
                 return -1;
-            var activeNodes = new List<KeyValuePair<int, Transform>>();
+            dropdownActiveNodes.Clear();
             for (var index = 0; index < nodes.Length; index++)
             {
                 var node = nodes[index];
                 if (node != null && node.gameObject.activeInHierarchy)
-                    activeNodes.Add(new KeyValuePair<int, Transform>(index,
+                    dropdownActiveNodes.Add(new KeyValuePair<int, Transform>(index,
                         node.transform));
             }
-            if (activeNodes.Count == 0)
+            if (dropdownActiveNodes.Count == 0)
                 return -1;
 
             // The vanilla free-cursor path targets these exact colliders. Using
             // them first keeps the VR pointer's hover and selection identical to
             // the game's own mouse/gamepad dropdown behavior.
-            var cursorLayer = LayerMask.NameToLayer("InventoryCursor");
+            var cursorLayer = GetCachedLayer(ref inventoryCursorLayer,
+                "InventoryCursor");
             if (cursorLayer >= 0)
             {
-                var hits = Physics.RaycastAll(ray, 6f, 1 << cursorLayer,
-                    QueryTriggerInteraction.Collide);
-                Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-                foreach (var hit in hits)
+                var hitCount = Physics.RaycastNonAlloc(ray, dropdownPointerHits, 6f,
+                    1 << cursorLayer, QueryTriggerInteraction.Collide);
+                var closestNodeIndex = -1;
+                var closestNodeDistance = float.MaxValue;
+                var closestNodePoint = point;
+                for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
                 {
+                    var hit = dropdownPointerHits[hitIndex];
                     var hitNode = hit.collider != null
                         ? hit.collider.GetComponent<T>()
                         : null;
@@ -4363,9 +5289,19 @@ namespace MFNVRBridge
                     {
                         if (nodes[index] != hitNode)
                             continue;
-                        point = hit.point;
-                        return index;
+                        if (hit.distance < closestNodeDistance)
+                        {
+                            closestNodeIndex = index;
+                            closestNodeDistance = hit.distance;
+                            closestNodePoint = hit.point;
+                        }
+                        break;
                     }
+                }
+                if (closestNodeIndex >= 0)
+                {
+                    point = closestNodePoint;
+                    return closestNodeIndex;
                 }
             }
 
@@ -4375,9 +5311,16 @@ namespace MFNVRBridge
             var closestRendererHit = float.MaxValue;
             var rendererIndex = -1;
             var rendererPoint = point;
-            foreach (var pair in activeNodes)
+            foreach (var pair in dropdownActiveNodes)
             {
-                foreach (var renderer in pair.Value.GetComponentsInChildren<Renderer>(true))
+                Renderer[] renderers;
+                if (!dropdownRendererCache.TryGetValue(pair.Value, out renderers) ||
+                    renderers == null)
+                {
+                    renderers = pair.Value.GetComponentsInChildren<Renderer>(true);
+                    dropdownRendererCache[pair.Value] = renderers;
+                }
+                foreach (var renderer in renderers)
                 {
                     if (renderer == null || !renderer.enabled)
                         continue;
@@ -4400,20 +5343,20 @@ namespace MFNVRBridge
             }
 
             var spacing = 0.055f;
-            if (activeNodes.Count > 1)
+            if (dropdownActiveNodes.Count > 1)
             {
                 spacing = float.MaxValue;
-                for (var index = 1; index < activeNodes.Count; index++)
+                for (var index = 1; index < dropdownActiveNodes.Count; index++)
                     spacing = Mathf.Min(spacing, Vector3.Distance(
-                        activeNodes[index - 1].Value.position,
-                        activeNodes[index].Value.position));
+                        dropdownActiveNodes[index - 1].Value.position,
+                        dropdownActiveNodes[index].Value.position));
                 if (spacing == float.MaxValue || spacing < 0.005f)
                     spacing = 0.055f;
             }
             var maximumDistance = Mathf.Clamp(spacing * 1.25f, 0.10f, 0.24f);
             var bestIndex = -1;
             var bestDistance = maximumDistance;
-            foreach (var pair in activeNodes)
+            foreach (var pair in dropdownActiveNodes)
             {
                 var toNode = pair.Value.position - ray.origin;
                 var alongRay = Vector3.Dot(toNode, ray.direction);
@@ -4437,14 +5380,18 @@ namespace MFNVRBridge
         {
             owner = null;
             point = ray.GetPoint(3f);
-            var inventoryLayer = LayerMask.NameToLayer("Inventory");
-            if (inventoryLayer < 0)
+            var itemLayer = GetCachedLayer(ref inventoryLayer, "Inventory");
+            if (itemLayer < 0)
                 return null;
-            var hits = Physics.RaycastAll(ray, 6f, 1 << inventoryLayer,
-                QueryTriggerInteraction.Collide);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
+            var hitCount = Physics.RaycastNonAlloc(ray, inventoryItemPointerHits, 6f,
+                1 << itemLayer, QueryTriggerInteraction.Collide);
+            ItemInInventory closestItem = null;
+            InventoryInWorld closestOwner = null;
+            var closestDistance = float.MaxValue;
+            var closestPoint = point;
+            for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
+                var hit = inventoryItemPointerHits[hitIndex];
                 if (hit.collider == null)
                     continue;
                 var sender = hit.collider.GetComponent<InteractionSender>();
@@ -4455,11 +5402,16 @@ namespace MFNVRBridge
                 var itemOwner = GetItemInventory(item);
                 if (itemOwner == null || !inventories.Contains(itemOwner))
                     continue;
-                owner = itemOwner;
-                point = hit.point;
-                return item;
+                if (hit.distance >= closestDistance)
+                    continue;
+                closestItem = item;
+                closestOwner = itemOwner;
+                closestDistance = hit.distance;
+                closestPoint = hit.point;
             }
-            return null;
+            owner = closestOwner;
+            point = closestPoint;
+            return closestItem;
         }
 
         private static InventoryInWorld GetItemInventory(ItemInInventory item)
@@ -4714,26 +5666,18 @@ namespace MFNVRBridge
             // props are frequently placed behind the closet/desk model's decorative
             // colliders, so nearby scenery must not occlude nodes belonging to the
             // current view. The current-view ownership check below is the safety gate.
-            var mask = 0;
-            AddNamedLayer(ref mask, "Inventory");
-            AddNamedLayer(ref mask, "Examine");
-            AddNamedLayer(ref mask, "ExamineHover");
-            AddNamedLayer(ref mask, "UI");
-            AddNamedLayer(ref mask, "InventoryHover");
-            AddNamedLayer(ref mask, "InvisibleHover");
-            AddNamedLayer(ref mask, "Invisible");
-            AddNamedLayer(ref mask, "Default");
-            AddNamedLayer(ref mask, "Level");
-            AddNamedLayer(ref mask, "DefaultHover");
-            AddNamedLayer(ref mask, "LevelProjectilePassthrough");
+            var mask = GetPointerInteractionMask();
             if (target == null)
             {
-                var hits = Physics.RaycastAll(ray, interactionPointerRange, mask,
-                    QueryTriggerInteraction.Collide);
-                Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-                foreach (var hit in hits)
+                var hitCount = Physics.RaycastNonAlloc(ray, interactionPointerHits,
+                    interactionPointerRange, mask, QueryTriggerInteraction.Collide);
+                var closestDistance = float.MaxValue;
+                for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
                 {
+                    var hit = interactionPointerHits[hitIndex];
                     if (hit.collider == null)
+                        continue;
+                    if (hit.distance >= closestDistance)
                         continue;
                     // Ignore the player/controller presentation itself. Other geometry
                     // may be crossed only while looking for a node explicitly owned by
@@ -4742,8 +5686,9 @@ namespace MFNVRBridge
                         (menuRightHandVisualRoot != null &&
                          hit.collider.transform.IsChildOf(menuRightHandVisualRoot)))
                         continue;
-                    foreach (var behaviour in
-                        hit.collider.GetComponentsInParent<MonoBehaviour>(true))
+                    pointerParentBehaviours.Clear();
+                    hit.collider.GetComponentsInParent(true, pointerParentBehaviours);
+                    foreach (var behaviour in pointerParentBehaviours)
                     {
                         var interactable = behaviour as Interactable;
                         if (interactable == null || interactable is ItemInInventory ||
@@ -4754,11 +5699,10 @@ namespace MFNVRBridge
                         {
                             target = interactable;
                             point = hit.point;
+                            closestDistance = hit.distance;
                             break;
                         }
                     }
-                    if (target != null)
-                        break;
                 }
             }
 
@@ -4792,7 +5736,7 @@ namespace MFNVRBridge
                     {
                         target.Interact(player);
                     }
-                    MFN_ApplyControllerHaptic(1, 0.28f, 0.045f, 0f);
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.28f, 0.045f, 0f);
                 }
                 catch (Exception exception)
                 {
@@ -4867,8 +5811,10 @@ namespace MFNVRBridge
                 return false;
             InventoryInWorld owner;
             var candidatePoint = point;
+            singlePointerInventory.Clear();
+            AddPointerInventory(singlePointerInventory, inventory);
             var square = FindPointerInventorySquare(ray,
-                new List<InventoryInWorld> { inventory }, out owner,
+                singlePointerInventory, out owner,
                 ref candidatePoint);
             if (square == null || owner != inventory)
                 return false;
@@ -4940,13 +5886,8 @@ namespace MFNVRBridge
             if (currentView == null)
             {
                 var layer = (target as Component)?.gameObject.layer ?? -1;
-                return layer == LayerMask.NameToLayer("Inventory") ||
-                       layer == LayerMask.NameToLayer("Examine") ||
-                       layer == LayerMask.NameToLayer("ExamineHover") ||
-                       layer == LayerMask.NameToLayer("UI") ||
-                       layer == LayerMask.NameToLayer("InventoryHover") ||
-                       layer == LayerMask.NameToLayer("InvisibleHover") ||
-                       layer == LayerMask.NameToLayer("Invisible");
+                return layer >= 0 && layer < 32 &&
+                       (GetPointerUiLayerMask() & (1 << layer)) != 0;
             }
 
             // Only nodes explicitly exposed by the view on top of MFN's camera stack
@@ -5024,6 +5965,7 @@ namespace MFNVRBridge
                 catch { }
             }
             menuPointerInputActive = false;
+            menuPointerRuntimeActive = false;
             RestoreInventoryDropdownLayers();
             previousInventoryTriggerPressed = false;
             previousInventoryPrimaryPressed = false;
@@ -5065,9 +6007,7 @@ namespace MFNVRBridge
 
             inventoryPointerDot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             inventoryPointerDot.name = "MFN VR Inventory Pointer Dot";
-            var inventoryPointerLayer = LayerMask.NameToLayer("Default");
-            if (inventoryPointerLayer < 0)
-                inventoryPointerLayer = 0;
+            var inventoryPointerLayer = GetCachedLayer(ref defaultLayer, "Default", 0);
             inventoryPointerDot.layer = inventoryPointerLayer;
             inventoryPointerDot.transform.localScale = Vector3.one * 0.025f;
             var collider = inventoryPointerDot.GetComponent<Collider>();
@@ -5088,13 +6028,20 @@ namespace MFNVRBridge
             inventoryPointerLine.useWorldSpace = true;
             inventoryPointerLine.shadowCastingMode = ShadowCastingMode.Off;
             inventoryPointerLine.receiveShadows = false;
+            inventoryPointerColor = inventoryPointerMaterial.color;
+            inventoryPointerColorReady = true;
+            menuPointerVisualLayer = int.MinValue;
             SetInventoryPointerVisible(false);
         }
 
         private static void SetInventoryPointerColor(Color color)
         {
-            if (inventoryPointerMaterial != null)
-                inventoryPointerMaterial.color = color;
+            if (inventoryPointerMaterial == null ||
+                (inventoryPointerColorReady && inventoryPointerColor == color))
+                return;
+            inventoryPointerMaterial.color = color;
+            inventoryPointerColor = color;
+            inventoryPointerColorReady = true;
         }
 
         private static void SetInventoryPointerVisible(bool visible)
@@ -5110,149 +6057,25 @@ namespace MFNVRBridge
         {
             if (layer < 0)
                 layer = 0;
+            if (menuPointerVisualLayer == layer)
+                return;
+            menuPointerVisualLayer = layer;
             if (inventoryPointerDot != null)
                 inventoryPointerDot.layer = layer;
             if (inventoryPointerLine != null)
                 inventoryPointerLine.gameObject.layer = layer;
             if (menuRightHandVisualRoot != null)
             {
-                foreach (var child in menuRightHandVisualRoot.GetComponentsInChildren<Transform>(true))
+                if (menuRightHandVisualTransforms == null ||
+                    menuRightHandVisualTransforms.Length == 0)
+                    menuRightHandVisualTransforms = menuRightHandVisualRoot
+                        .GetComponentsInChildren<Transform>(true);
+                foreach (var child in menuRightHandVisualTransforms)
                 {
                     if (child != null)
                         child.gameObject.layer = layer;
                 }
             }
-        }
-
-        private static void UpdatePhysicalInventoryInteraction(Player player,
-            InventoryInWorld inventory)
-        {
-            if (player == null || inventory == null)
-                return;
-            EnsurePhysicalInventoryState(inventory);
-            inventory.DisableCursor();
-
-            float stickX, stickY, trigger, squeeze;
-            int primary, secondary, stickClick, menu;
-            var haveInput = MFN_GetControllerInput(0, out stickX, out stickY,
-                out trigger, out squeeze, out primary, out secondary,
-                out stickClick, out menu) != 0;
-            var gripPressed = haveInput && squeeze >= 0.72f;
-
-            if (gripPressed && !previousInventoryGripPressed &&
-                physicalInventoryHeldItem == null && leftPoseValid && motionPoseValid &&
-                !inventory.IsClosing())
-                TryGrabPhysicalInventoryItem(player, inventory);
-
-            if (!gripPressed && previousInventoryGripPressed &&
-                physicalInventoryHeldItem != null)
-                ReleasePhysicalInventoryItem(player, inventory);
-
-            previousInventoryGripPressed = gripPressed;
-            UpdatePhysicalInventoryHeldPose();
-        }
-
-        private static void TryGrabPhysicalInventoryItem(Player player,
-            InventoryInWorld inventory)
-        {
-            ItemInInventory nearest = null;
-            var nearestDistance = 0.14f;
-            foreach (var item in inventory.GetComponentsInChildren<ItemInInventory>(false))
-            {
-                if (item == null || !item.gameObject.activeInHierarchy ||
-                    !item.GetCanInteract())
-                    continue;
-                var collider = item.GetMyCol();
-                if (collider == null || !collider.enabled ||
-                    !collider.gameObject.activeInHierarchy)
-                    continue;
-                var distance = Vector3.Distance(leftGripWorldPosition,
-                    collider.ClosestPoint(leftGripWorldPosition));
-                if (distance >= nearestDistance)
-                    continue;
-                nearest = item;
-                nearestDistance = distance;
-            }
-            if (nearest == null)
-                return;
-
-            var node = nearest.GetMyInventoryNode();
-            physicalItemOriginalLocalPosition = nearest.transform.localPosition;
-            physicalItemOriginalLocalRotation = nearest.transform.localRotation;
-            physicalItemOriginalX = node.xPos;
-            physicalItemOriginalY = node.yPos;
-            physicalItemOriginalRotation = node.rotation;
-            physicalGrabControllerRotation = leftGripWorldRotation;
-            physicalGrabPositionOffset = Quaternion.Inverse(leftGripWorldRotation) *
-                (nearest.transform.position - leftGripWorldPosition);
-            physicalGrabRotationOffset = Quaternion.Inverse(leftGripWorldRotation) *
-                nearest.transform.rotation;
-
-            player.bufferAFrameForInventory = -1f;
-            inventory.PickUpItem(nearest, true, true);
-            if (inventory.GetCurrentlyHoldingItem() != nearest)
-                return;
-            physicalInventoryHeldItem = nearest;
-            nearest.DisableLerp();
-            MFN_ApplyControllerHaptic(0, 0.35f, 0.055f, 0f);
-            Debug.Log("MFNVR: physically grabbed inventory item " + nearest.name + ".");
-        }
-
-        private static void UpdatePhysicalInventoryHeldPose()
-        {
-            if (physicalInventoryHeldItem == null || !leftPoseValid)
-                return;
-            physicalInventoryHeldItem.transform.SetPositionAndRotation(
-                leftGripWorldPosition + leftGripWorldRotation * physicalGrabPositionOffset,
-                leftGripWorldRotation * physicalGrabRotationOffset);
-        }
-
-        private static void ReleasePhysicalInventoryItem(Player player,
-            InventoryInWorld inventory)
-        {
-            var item = physicalInventoryHeldItem;
-            if (item == null)
-                return;
-            var node = item.GetMyInventoryNode();
-            var closest = FindClosestPhysicalInventorySquare(item.transform.position,
-                out var closestDistance);
-            var slotSpacing = GetPhysicalInventorySlotSpacing();
-            var releaseRadius = Mathf.Clamp(slotSpacing * 1.35f, 0.14f, 0.28f);
-            var placed = false;
-
-            if (closest != null && closestDistance <= releaseRadius)
-            {
-                node.rotation = GetPhysicalInventoryRotation(inventory.transform,
-                    physicalGrabControllerRotation, leftGripWorldRotation,
-                    physicalItemOriginalRotation);
-                item.transform.localRotation = physicalItemOriginalLocalRotation;
-                item.transform.localPosition = new Vector3(closest.transform.localPosition.x,
-                    physicalItemOriginalLocalPosition.y, closest.transform.localPosition.z);
-                item.SetRotation(true);
-                placed = InvokeInventoryPutDown(player, inventory);
-            }
-
-            if (!placed)
-            {
-                // MFN rejected the slot (overlap/out of bounds), or the hand was released
-                // away from the grid. Restore the exact saved node and pose, then let MFN's
-                // own placement routine relink its controls and occupancy map.
-                node.xPos = physicalItemOriginalX;
-                node.yPos = physicalItemOriginalY;
-                node.rotation = physicalItemOriginalRotation;
-                item.transform.localPosition = physicalItemOriginalLocalPosition;
-                item.transform.localRotation = physicalItemOriginalLocalRotation;
-                item.SetRotation(true);
-                InvokeInventoryPutDown(player, inventory);
-            }
-
-            item.EnableLerp();
-            physicalInventoryHeldItem = null;
-            MFN_ApplyControllerHaptic(0, placed ? 0.28f : 0.16f,
-                placed ? 0.050f : 0.035f, 0f);
-            Debug.Log(placed
-                ? "MFNVR: physically placed inventory item into a valid slot."
-                : "MFNVR: returned inventory item to its pickup slot.");
         }
 
         private static bool InvokeInventoryPutDown(Player player,
@@ -5272,87 +6095,6 @@ namespace MFNVRBridge
             {
                 Debug.LogWarning("MFNVR: physical inventory placement failed: " + exception);
                 return false;
-            }
-        }
-
-        private static InventorySquare FindClosestPhysicalInventorySquare(
-            Vector3 worldPosition, out float distance)
-        {
-            InventorySquare closest = null;
-            distance = float.MaxValue;
-            if (physicalInventoryRows == null)
-                return null;
-            foreach (var row in physicalInventoryRows)
-            {
-                if (row == null || row.row == null)
-                    continue;
-                foreach (var square in row.row)
-                {
-                    if (square == null)
-                        continue;
-                    var candidateDistance = Vector3.Distance(worldPosition,
-                        square.transform.position);
-                    if (candidateDistance >= distance)
-                        continue;
-                    closest = square;
-                    distance = candidateDistance;
-                }
-            }
-            return closest;
-        }
-
-        private static float GetPhysicalInventorySlotSpacing()
-        {
-            if (physicalInventoryRows == null || physicalInventoryRows.Length == 0 ||
-                physicalInventoryRows[0] == null || physicalInventoryRows[0].row == null)
-                return 0.12f;
-            var firstRow = physicalInventoryRows[0].row;
-            if (firstRow.Length > 1 && firstRow[0] != null && firstRow[1] != null)
-                return Vector3.Distance(firstRow[0].transform.position,
-                    firstRow[1].transform.position);
-            if (physicalInventoryRows.Length > 1 && firstRow.Length > 0 &&
-                firstRow[0] != null && physicalInventoryRows[1] != null &&
-                physicalInventoryRows[1].row != null &&
-                physicalInventoryRows[1].row.Length > 0 &&
-                physicalInventoryRows[1].row[0] != null)
-                return Vector3.Distance(firstRow[0].transform.position,
-                    physicalInventoryRows[1].row[0].transform.position);
-            return 0.12f;
-        }
-
-        private static int GetPhysicalInventoryRotation(Transform inventoryRoot,
-            Quaternion startControllerRotation, Quaternion currentControllerRotation,
-            int originalRotation)
-        {
-            var normal = inventoryRoot != null ? inventoryRoot.up : Vector3.up;
-            var startDirection = Vector3.ProjectOnPlane(
-                startControllerRotation * Vector3.forward, normal);
-            var currentDirection = Vector3.ProjectOnPlane(
-                currentControllerRotation * Vector3.forward, normal);
-            if (startDirection.sqrMagnitude < 0.01f || currentDirection.sqrMagnitude < 0.01f)
-                return originalRotation;
-            var angle = Vector3.SignedAngle(startDirection, currentDirection, normal);
-            var quarterTurns = Mathf.RoundToInt(angle / 90f);
-            var rotation = (originalRotation + quarterTurns) % 4;
-            if (rotation < 0)
-                rotation += 4;
-            return rotation;
-        }
-
-        private static void ApplyPhysicalInventoryHandPose()
-        {
-            if (!leftPoseValid)
-                return;
-            LoadLeftHandCalibration();
-            var rotation = GetTrackedLeftHandVisualRotation();
-            if (usingBakedLeftHand && leftHandVisualRoot != null)
-            {
-                leftHandVisualRoot.SetPositionAndRotation(leftGripWorldPosition, rotation);
-                EnsureLeftHandVisible();
-            }
-            else if (leftHandRoot != null)
-            {
-                ApplyLeftHandVisualPose(leftGripWorldPosition, rotation);
             }
         }
 
@@ -5388,6 +6130,11 @@ namespace MFNVRBridge
             right.useOcclusionCulling = false;
             left.cullingMask = source.cullingMask & ~(1 << MenuLayer);
             right.cullingMask = source.cullingMask & ~(1 << MenuLayer);
+            if (settingsMenuOpen)
+            {
+                left.cullingMask |= 1 << MenuLayer;
+                right.cullingMask |= 1 << MenuLayer;
+            }
             left.clearFlags = source.clearFlags;
             right.clearFlags = source.clearFlags;
             left.backgroundColor = source.backgroundColor;
@@ -5415,6 +6162,7 @@ namespace MFNVRBridge
                     behaviour.enabled = true;
             }
             camerasWithRenderEffectsEnabled[cameraId] = camera;
+            menuEyesWithEffectsDisabled.Remove(cameraId);
         }
 
         private static void ConfigureHud(Camera source, Camera left, Camera right,
@@ -5507,6 +6255,8 @@ namespace MFNVRBridge
             RenderTexture leftTexture, RenderTexture rightTexture)
         {
             EnsureMenuObjects(source, left, right);
+            lastMenuLeftEye = left;
+            lastMenuRightEye = right;
             ConfigureMenuEye(left, leftTexture);
             ConfigureMenuEye(right, rightTexture);
             if (menuScreen != null)
@@ -5518,6 +6268,12 @@ namespace MFNVRBridge
         private static void UpdateFlatMenuPointer(Camera source, Camera left,
             Camera right)
         {
+            EnsureGameplayPatches();
+            if (!behindHeadInputHookInstalled)
+            {
+                InputSystem.onBeforeUpdate += SuppressBehindHeadWalkingBeforeInputUpdate;
+                behindHeadInputHookInstalled = true;
+            }
             if (flatMenuPointerFrame == Time.frameCount)
                 return;
             flatMenuPointerFrame = Time.frameCount;
@@ -5537,8 +6293,24 @@ namespace MFNVRBridge
             // Player's main-menu flag late. The title activation component is an
             // unambiguous fallback and prevents the title from being mistaken for a
             // pause menu (both enable pause-menu controls internally).
-            var mainMenuActivatorPresent = UnityEngine.Object
-                .FindObjectOfType<ActivateMenuControllerOnMain>() != null;
+            // A full scene search here used to run once per frame. Probe once per scene,
+            // then only retry occasionally while the title activator is still spawning.
+            var activeSceneHandle = UnityEngine.SceneManagement.SceneManager
+                .GetActiveScene().handle;
+            if (cachedMainMenuSceneHandle != activeSceneHandle)
+            {
+                cachedMainMenuSceneHandle = activeSceneHandle;
+                cachedMainMenuActivatorPresent = false;
+                nextMainMenuActivatorProbeFrame = 0;
+            }
+            if (!cachedMainMenuActivatorPresent &&
+                Time.frameCount >= nextMainMenuActivatorProbeFrame)
+            {
+                cachedMainMenuActivatorPresent = UnityEngine.Object
+                    .FindObjectOfType<ActivateMenuControllerOnMain>() != null;
+                nextMainMenuActivatorProbeFrame = Time.frameCount + 120;
+            }
+            var mainMenuActivatorPresent = cachedMainMenuActivatorPresent;
             var mainMenu = explicitMainMenu || mainMenuActivatorPresent ||
                 (menuControllerActive && mainMenuScene);
             // MFN calls EnablePauseMenuControls on its title screen too. Main-menu
@@ -5546,17 +6318,20 @@ namespace MFNVRBridge
             // the HUD camera, where none of the title selections exist.
             var pauseMenu = player != null && !mainMenu &&
                 ReadBooleanField(pauseMenuEnabledField, player);
-            var pointerMode = mainMenu ? 1 : (pauseMenu ? 2 : 0);
+            menuSettingsButtonVisible = !settingsMenuOpen && (mainMenu || pauseMenu);
+            var pointerMode = settingsMenuOpen ? 3 : mainMenu ? 1 : (pauseMenu ? 2 : 0);
             if (pointerMode != flatMenuPointerMode)
             {
                 flatMenuPointerMode = pointerMode;
                 Debug.Log("MFNVR: flat pointer mode=" +
-                    (pointerMode == 1 ? "main" : pointerMode == 2 ? "pause" : "none") +
+                    (pointerMode == 1 ? "main" : pointerMode == 2 ? "pause" :
+                        pointerMode == 3 ? "vr-settings" : "none") +
                     ", scene='" + activeSceneName + "', explicitMain=" +
                     explicitMainMenu + ", menuStack=" + menuControllerActive + ".");
             }
-            if (!menuPointerEnabled || player == null || menuScreen == null ||
-                menuCapture == null || (!mainMenu && !pauseMenu))
+            if ((!menuPointerEnabled && !settingsMenuOpen) || menuScreen == null ||
+                menuCapture == null || (!settingsMenuOpen &&
+                    (player == null || (!mainMenu && !pauseMenu))))
             {
                 ResetFlatMenuPointerInteraction();
                 return;
@@ -5573,7 +6348,8 @@ namespace MFNVRBridge
 
             float stickX, stickY, trigger, squeeze;
             int primary, secondary, stickClick, menu;
-            var haveInput = MFN_GetControllerInput(1, out stickX, out stickY,
+            var haveInput = MFN_GetControllerInput(DominantHandIndex,
+                out stickX, out stickY,
                 out trigger, out squeeze, out primary, out secondary,
                 out stickClick, out menu) != 0;
             var triggerPressed = haveInput && trigger >= 0.72f;
@@ -5582,6 +6358,18 @@ namespace MFNVRBridge
                 (primaryPressed && !previousFlatMenuPrimaryPressed);
             previousFlatMenuTriggerPressed = triggerPressed;
             previousFlatMenuPrimaryPressed = primaryPressed;
+            float supportStickX, supportStickY, supportTrigger, supportSqueeze;
+            int supportPrimary, supportSecondary, supportStickClick, supportMenu;
+            var haveSupportInput = MFN_GetControllerInput(SupportHandIndex,
+                out supportStickX, out supportStickY, out supportTrigger,
+                out supportSqueeze, out supportPrimary, out supportSecondary,
+                out supportStickClick, out supportMenu) != 0;
+            var leftTriggerPressed = haveSupportInput && supportTrigger >= 0.72f;
+            var leftTriggerStarted = leftTriggerPressed &&
+                                     !previousFlatMenuLeftTriggerPressed;
+            previousFlatMenuLeftTriggerPressed = leftTriggerPressed;
+            if (flatMenuSliderCaptureActive && !triggerPressed && !primaryPressed)
+                ReleaseFlatMenuSlider();
             menuPointerInputActive = true;
             flatMenuPointerActive = true;
 
@@ -5599,24 +6387,67 @@ namespace MFNVRBridge
                       Mathf.Abs(local.y) <= 0.5f;
 
             Interactable target = null;
+            Vector2 pointerScreenPosition = default(Vector2);
+            var havePointerScreenPosition = false;
+            var settingsHoverActive = false;
             if (onPanel)
             {
                 var u = Mathf.Clamp01(local.x + 0.5f);
                 var v = Mathf.Clamp01(local.y + 0.5f);
                 var mousePosition = new Vector2(u * Mathf.Max(1, Screen.width),
                     v * Mathf.Max(1, Screen.height));
-                if (Mouse.current != null)
+                pointerScreenPosition = mousePosition;
+                havePointerScreenPosition = true;
+                if (!settingsMenuOpen && Mouse.current != null)
                 {
                     Mouse.current.WarpCursorPosition(mousePosition);
                     // WarpCursorPosition moves the OS cursor, while changing the
                     // device state immediately lets MFN process hover in this frame.
                     InputState.Change(Mouse.current.position, mousePosition);
                 }
-                Player.wasLastUsingGamepad = false;
-                target = FindFlatMenuPointerTarget(player, source, pauseMenu, u, v);
+                if (!settingsMenuOpen)
+                {
+                    Player.wasLastUsingGamepad = false;
+                    target = FindFlatMenuPointerTarget(player, source, pauseMenu, u, v);
+                    // Account for the captured quad's vertical texture orientation. The
+                    // second rectangle also keeps older menu captures compatible.
+                    menuSettingsButtonHovered = u >= MenuSettingsButtonMinU &&
+                        u <= MenuSettingsButtonMaxU &&
+                        ((v >= MenuSettingsButtonMinV && v <= MenuSettingsButtonMaxV) ||
+                         (1f - v >= MenuSettingsButtonMinV &&
+                          1f - v <= MenuSettingsButtonMaxV));
+                }
+                else
+                {
+                    menuSettingsButtonHovered = false;
+                    settingsHoverActive = UpdateCapturedSettingsPointer(u, v,
+                        triggerPressed || primaryPressed, triggerStarted);
+                    target = null;
+                    triggerStarted = false;
+                }
+            }
+            else
+            {
+                menuSettingsButtonHovered = false;
             }
 
-            if (!ReferenceEquals(flatMenuPointerHoveredInteractable, target))
+            // The VR Settings button is composited directly into this captured screen.
+            // Its normalized hit rectangle is identical to the drawn rectangle, so it
+            // cannot drift with resolution or aspect-ratio changes.
+            if (menuSettingsButtonVisible && menuSettingsButtonHovered)
+            {
+                target = null;
+                if (triggerStarted)
+                {
+                    SetSettingsMenuOpen(true);
+                    triggerStarted = false;
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.34f, 0.055f, 0f);
+                    Debug.Log("MFNVR: VR Settings selected from the main/pause screen.");
+                }
+            }
+
+            if (!settingsMenuOpen &&
+                !ReferenceEquals(flatMenuPointerHoveredInteractable, target))
             {
                 if (flatMenuPointerHoveredInteractable != null)
                 {
@@ -5631,7 +6462,7 @@ namespace MFNVRBridge
                 }
             }
 
-            if (target != null)
+            if (!settingsMenuOpen && target != null)
             {
                 try
                 {
@@ -5644,8 +6475,21 @@ namespace MFNVRBridge
                 {
                     try
                     {
-                        target.Interact(player);
-                        MFN_ApplyControllerHaptic(1, 0.28f, 0.045f, 0f);
+                        var slider = ResolveFlatMenuSlider(target);
+                        if (slider != null)
+                        {
+                            if (!IsFlatMenuSliderPickedUp(slider))
+                                AcquireFlatMenuSlider(slider);
+                            if (IsFlatMenuSliderPickedUp(slider))
+                            {
+                                flatMenuGrabbedSlider = slider;
+                                flatMenuSliderCaptureActive = true;
+                                nextFlatMenuSliderValueUpdateTime = 0f;
+                            }
+                        }
+                        else
+                            target.Interact(player);
+                        MFN_ApplyControllerHaptic(DominantHandIndex, 0.28f, 0.045f, 0f);
                     }
                     catch (Exception exception)
                     {
@@ -5653,6 +6497,9 @@ namespace MFNVRBridge
                     }
                 }
             }
+
+            if (flatMenuSliderCaptureActive && havePointerScreenPosition)
+                UpdateFlatMenuSliderDrag(player, source, pointerScreenPosition);
 
             EnsureInventoryPointerVisual();
             // Flat menus only need a clean ray and endpoint. Keeping the full hand mesh
@@ -5671,9 +6518,348 @@ namespace MFNVRBridge
             inventoryPointerDot.transform.position = visualPoint;
             inventoryPointerLine.SetPosition(0, rightAimWorldPosition);
             inventoryPointerLine.SetPosition(1, visualPoint);
-            SetInventoryPointerColor(target != null
+            SetInventoryPointerColor(target != null || settingsHoverActive ||
+                menuSettingsButtonHovered
                 ? new Color(0.20f, 1f, 0.35f, 1f)
                 : new Color(1f, 0.78f, 0.05f, 1f));
+        }
+
+        private static bool UpdateCapturedSettingsPointer(float u, float v,
+            bool selectPressed, bool selectStarted)
+        {
+            const float textureWidth = 1400f;
+            const float textureHeight = 900f;
+            var previousTab = settingsMenuHoveredTab;
+            var previousOption = settingsMenuHoveredOption;
+            var previousClose = settingsMenuCloseHovered;
+            settingsMenuHoveredTab = -1;
+            settingsMenuHoveredOption = -1;
+            settingsMenuCloseHovered = false;
+
+            var inside = u >= SettingsPanelMinU && u <= SettingsPanelMaxU &&
+                         v >= SettingsPanelMinV && v <= SettingsPanelMaxV;
+            if (!inside)
+            {
+                if (settingsMenuDraggingOption >= 0 && !selectPressed)
+                    CommitCapturedSetting(settingsMenuDraggingOption,
+                        settingsMenuValues[settingsMenuDraggingOption]);
+                if (previousTab != -1 || previousOption != -1 || previousClose)
+                    settingsMenuTextureDirty = true;
+                return false;
+            }
+
+            var normalizedX = (u - SettingsPanelMinU) /
+                              (SettingsPanelMaxU - SettingsPanelMinU);
+            var normalizedY = (v - SettingsPanelMinV) /
+                              (SettingsPanelMaxV - SettingsPanelMinV);
+            var x = normalizedX * textureWidth;
+            var y = (1f - normalizedY) * textureHeight;
+
+            var closeHovered = x >= 1315f && x <= 1385f &&
+                               y >= 18f && y <= 82f;
+            settingsMenuCloseHovered = closeHovered;
+            for (var category = 0; category < SettingsMenuCategories.Length; category++)
+            {
+                var tabX = 30f + category * 268f;
+                if (x >= tabX && x <= tabX + 250f && y >= 108f && y <= 168f)
+                {
+                    settingsMenuHoveredTab = category;
+                    break;
+                }
+            }
+
+            var row = 0;
+            for (var index = 0; index < SettingsMenuOptions.Length; index++)
+            {
+                if (SettingsMenuOptions[index].Category != settingsMenuCategory)
+                    continue;
+                var rowY = 205f + row * 105f;
+                if (x >= 35f && x <= 1365f && y >= rowY && y <= rowY + 76f)
+                    settingsMenuHoveredOption = index;
+                row++;
+            }
+
+            if (selectStarted)
+            {
+                if (closeHovered)
+                {
+                    SetSettingsMenuOpen(false);
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.3f, 0.05f, 0f);
+                    return true;
+                }
+                if (settingsMenuHoveredTab >= 0)
+                {
+                    settingsMenuCategory = settingsMenuHoveredTab;
+                    settingsMenuHoveredOption = -1;
+                    settingsMenuDraggingOption = -1;
+                    settingsMenuTextureDirty = true;
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.2f, 0.035f, 0f);
+                }
+                else if (settingsMenuHoveredOption >= 0)
+                {
+                    var option = SettingsMenuOptions[settingsMenuHoveredOption];
+                    if (option.Toggle)
+                    {
+                        var value = settingsMenuValues[settingsMenuHoveredOption] >= 0.5f
+                            ? 0f : 1f;
+                        CommitCapturedSetting(settingsMenuHoveredOption, value);
+                    }
+                    else
+                    {
+                        settingsMenuDraggingOption = settingsMenuHoveredOption;
+                        UpdateCapturedSliderValue(settingsMenuDraggingOption, x);
+                    }
+                    MFN_ApplyControllerHaptic(DominantHandIndex, 0.26f, 0.045f, 0f);
+                }
+            }
+
+            if (settingsMenuDraggingOption >= 0)
+            {
+                if (selectPressed)
+                    UpdateCapturedSliderValue(settingsMenuDraggingOption, x);
+                else
+                {
+                    CommitCapturedSetting(settingsMenuDraggingOption,
+                        settingsMenuValues[settingsMenuDraggingOption]);
+                    settingsMenuDraggingOption = -1;
+                }
+            }
+
+            if (previousTab != settingsMenuHoveredTab ||
+                previousOption != settingsMenuHoveredOption ||
+                previousClose != settingsMenuCloseHovered)
+                settingsMenuTextureDirty = true;
+            return closeHovered || settingsMenuHoveredTab >= 0 ||
+                   settingsMenuHoveredOption >= 0;
+        }
+
+        private static void UpdateCapturedSliderValue(int index, float pointerX)
+        {
+            if (index < 0 || index >= SettingsMenuOptions.Length)
+                return;
+            var option = SettingsMenuOptions[index];
+            if (option.Toggle)
+                return;
+            var normalized = Mathf.Clamp01((pointerX - 610f) / 590f);
+            settingsMenuValues[index] = option.Logarithmic
+                ? Mathf.Exp(Mathf.Lerp(Mathf.Log(option.Minimum),
+                    Mathf.Log(option.Maximum), normalized))
+                : Mathf.Lerp(option.Minimum, option.Maximum, normalized);
+            settingsMenuTextureDirty = true;
+        }
+
+        private static bool ReadSettingsMenuValues()
+        {
+            try
+            {
+                // The file is the source of truth and is deliberately reread on every
+                // opening. This avoids plugin load-order and Assembly.LoadFrom context
+                // differences between BepInEx, Oculus OpenXR and SteamVR OpenXR.
+                if (ReadSettingsMenuValuesFromFile())
+                {
+                    ApplyCapturedSettingsLocally();
+                    settingsMenuTextureDirty = true;
+                    return true;
+                }
+                if (settingsMenuValueReader != null)
+                {
+                    var provided = settingsMenuValueReader(settingsMenuValues);
+                    settingsMenuTextureDirty = true;
+                    return provided;
+                }
+                var configType = FindLoadedType("MFNVRConfig.MFNVRConfigPlugin");
+                getSettingsMenuValuesMethod = getSettingsMenuValuesMethod ??
+                    configType?.GetMethod("GetVrSettingsMenuValues",
+                        BindingFlags.Static | BindingFlags.Public);
+                var read = getSettingsMenuValuesMethod != null &&
+                           getSettingsMenuValuesMethod.Invoke(null,
+                               new object[] { settingsMenuValues }) is bool success && success;
+                if (!read && !settingsMenuProviderWarningLogged)
+                {
+                    settingsMenuProviderWarningLogged = true;
+                    Debug.LogWarning("MFNVR: live config values were unavailable to the " +
+                                     "captured settings screen.");
+                }
+                settingsMenuTextureDirty = true;
+                return read;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR: could not read captured settings values: " +
+                                 exception.Message);
+                return false;
+            }
+        }
+
+        private static void CommitCapturedSetting(int index, float value)
+        {
+            if (index < 0 || index >= SettingsMenuOptions.Length)
+                return;
+            settingsMenuValues[index] = value;
+            try
+            {
+                if (WriteSettingsMenuValueToFile(index, value))
+                {
+                    ApplyCapturedSettingsLocally();
+                    if (settingsMenuValueWriter != null)
+                        settingsMenuValueWriter(index, value);
+                    settingsMenuTextureDirty = true;
+                    return;
+                }
+                if (settingsMenuValueWriter != null)
+                {
+                    if (!settingsMenuValueWriter(index, value))
+                        Debug.LogWarning("MFNVR: captured settings change was not accepted.");
+                    else
+                        ReadSettingsMenuValues();
+                    settingsMenuTextureDirty = true;
+                    return;
+                }
+                var configType = FindLoadedType("MFNVRConfig.MFNVRConfigPlugin");
+                setSettingsMenuValueMethod = setSettingsMenuValueMethod ??
+                    configType?.GetMethod("SetVrSettingsMenuValue",
+                        BindingFlags.Static | BindingFlags.Public);
+                if (setSettingsMenuValueMethod == null ||
+                    !(setSettingsMenuValueMethod.Invoke(null,
+                        new object[] { index, value }) is bool applied) || !applied)
+                    Debug.LogWarning("MFNVR: captured settings change was not accepted.");
+                else
+                    ReadSettingsMenuValues();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR: could not apply captured settings value: " +
+                                 exception.Message);
+            }
+            settingsMenuTextureDirty = true;
+        }
+
+        private static string GetSettingsMenuConfigPath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                "BepInEx", "config", "MFNVR.cfg");
+        }
+
+        private static bool ReadSettingsMenuValuesFromFile()
+        {
+            var path = GetSettingsMenuConfigPath();
+            if (!File.Exists(path))
+                return false;
+            Array.Copy(SettingsMenuDefaults, settingsMenuValues,
+                SettingsMenuDefaults.Length);
+            var section = string.Empty;
+            foreach (var rawLine in File.ReadAllLines(path))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+                if (line[0] == '[' && line[line.Length - 1] == ']')
+                {
+                    section = line.Substring(1, line.Length - 2).Trim();
+                    continue;
+                }
+                var separator = line.IndexOf('=');
+                if (separator <= 0)
+                    continue;
+                var key = line.Substring(0, separator).Trim();
+                var textValue = line.Substring(separator + 1).Trim();
+                for (var index = 0; index < SettingsMenuOptions.Length; index++)
+                {
+                    if (!string.Equals(section, SettingsMenuConfigSections[index],
+                            StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(key, SettingsMenuConfigKeys[index],
+                            StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (SettingsMenuOptions[index].Toggle)
+                    {
+                        bool enabled;
+                        if (bool.TryParse(textValue, out enabled))
+                            settingsMenuValues[index] = enabled ? 1f : 0f;
+                    }
+                    else
+                    {
+                        float number;
+                        if (float.TryParse(textValue, NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out number))
+                            settingsMenuValues[index] = Mathf.Clamp(number,
+                                SettingsMenuOptions[index].Minimum,
+                                SettingsMenuOptions[index].Maximum);
+                    }
+                    break;
+                }
+            }
+            Debug.Log("MFNVR: captured settings values reloaded directly from " + path + ".");
+            return true;
+        }
+
+        private static bool WriteSettingsMenuValueToFile(int index, float value)
+        {
+            if (index < 0 || index >= SettingsMenuOptions.Length)
+                return false;
+            var path = GetSettingsMenuConfigPath();
+            if (!File.Exists(path))
+                return false;
+            var lines = new List<string>(File.ReadAllLines(path));
+            var section = string.Empty;
+            for (var lineIndex = 0; lineIndex < lines.Count; lineIndex++)
+            {
+                var line = lines[lineIndex].Trim();
+                if (line.Length > 1 && line[0] == '[' && line[line.Length - 1] == ']')
+                {
+                    section = line.Substring(1, line.Length - 2).Trim();
+                    continue;
+                }
+                var separator = line.IndexOf('=');
+                if (separator <= 0 || !string.Equals(section,
+                        SettingsMenuConfigSections[index], StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var key = line.Substring(0, separator).Trim();
+                if (!string.Equals(key, SettingsMenuConfigKeys[index],
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var serialized = SettingsMenuOptions[index].Toggle
+                    ? (value >= 0.5f ? "true" : "false")
+                    : Mathf.Clamp(value, SettingsMenuOptions[index].Minimum,
+                            SettingsMenuOptions[index].Maximum)
+                        .ToString("0.######", CultureInfo.InvariantCulture);
+                lines[lineIndex] = SettingsMenuConfigKeys[index] + " = " + serialized;
+                File.WriteAllLines(path, lines.ToArray());
+                Debug.Log("MFNVR: wrote " + SettingsMenuConfigSections[index] + "/" +
+                          SettingsMenuConfigKeys[index] + " to MFNVR.cfg.");
+                return true;
+            }
+            return false;
+        }
+
+        private static void ApplyCapturedSettingsLocally()
+        {
+            ApplyUserSettings(settingsMenuValues[4] >= 0.5f,
+                settingsMenuValues[5], settingsMenuValues[6], settingsMenuValues[7],
+                settingsMenuValues[8], settingsMenuValues[9], settingsMenuValues[10],
+                settingsMenuValues[11]);
+            ApplyUiScreenSettings(settingsMenuValues[12] >= 0.5f);
+            ApplyMenuPointerSettings(settingsMenuValues[13] >= 0.5f);
+            ApplyInteractionCameraSettings(settingsMenuValues[14] >= 0.5f);
+            ApplyPhysicalWeaponSwitchingSettings(settingsMenuValues[18] >= 0.5f);
+            ApplyLeftHandedSettings(false);
+        }
+
+        private static Type FindLoadedType(string fullName)
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    var type = assembly.GetType(fullName, false);
+                    if (type != null)
+                        return type;
+                }
+                catch
+                {
+                    // Dynamic and partially loaded assemblies can reject type queries.
+                }
+            }
+            return null;
         }
 
         private static Interactable FindFlatMenuPointerTarget(Player player,
@@ -5694,26 +6880,32 @@ namespace MFNVRBridge
             var ray = targetCamera.ScreenPointToRay(screenPoint);
             var mask = 0;
             AddNamedLayer(ref mask, "UI");
-            var hits = Physics.RaycastAll(ray, 30f, mask,
+            var hitCount = Physics.RaycastNonAlloc(ray, flatMenuPointerHits, 30f, mask,
                 QueryTriggerInteraction.Collide);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
+            Interactable closestTarget = null;
+            var closestDistance = float.MaxValue;
+            for (var hitIndex = 0; hitIndex < hitCount; hitIndex++)
             {
+                var hit = flatMenuPointerHits[hitIndex];
                 if (hit.collider == null)
                     continue;
                 var target = hit.collider.GetComponent<Interactable>();
                 if (target == null)
                     target = hit.collider.GetComponentInParent<Interactable>();
-                if (target != null)
-                    return target;
+                if (target == null || hit.distance >= closestDistance)
+                    continue;
+                closestTarget = target;
+                closestDistance = hit.distance;
             }
-            return null;
+            return closestTarget;
         }
 
         private static void ResetFlatMenuPointerInteraction()
         {
-            if (!flatMenuPointerActive && flatMenuPointerHoveredInteractable == null)
+            if (!flatMenuPointerActive && flatMenuPointerHoveredInteractable == null &&
+                !flatMenuSliderCaptureActive)
                 return;
+            ReleaseFlatMenuSlider();
             var player = Player.current;
             if (flatMenuPointerHoveredInteractable != null && player != null)
             {
@@ -5724,14 +6916,165 @@ namespace MFNVRBridge
             flatMenuPointerActive = false;
             previousFlatMenuTriggerPressed = false;
             previousFlatMenuPrimaryPressed = false;
+            previousFlatMenuLeftTriggerPressed = false;
             flatMenuPointerFrame = -1;
             flatMenuPointerMode = -1;
+            menuSettingsButtonHovered = false;
             menuPointerInputActive = false;
-            SetMenuPointerVisualLayer(LayerMask.NameToLayer("Default"));
+            SetMenuPointerVisualLayer(GetCachedLayer(ref defaultLayer, "Default", 0));
             SetInventoryPointerVisible(false);
             if (menuRightHandVisualRoot != null &&
                 menuRightHandVisualRoot.gameObject.activeSelf)
                 menuRightHandVisualRoot.gameObject.SetActive(false);
+        }
+
+        private static Menus.MenuBarNub ResolveFlatMenuSlider(Interactable target)
+        {
+            var nub = target as Menus.MenuBarNub;
+            if (nub != null)
+                return nub;
+            var bar = target as Menus.MenuSelectionBar;
+            return bar != null
+                ? menuSelectionBarNubField?.GetValue(bar) as Menus.MenuBarNub
+                : null;
+        }
+
+        private static bool IsFlatMenuSliderPickedUp(Menus.MenuBarNub slider)
+        {
+            if (slider == null || menuBarNubPickedUpField == null)
+                return slider != null;
+            try
+            {
+                return menuBarNubPickedUpField.GetValue(slider) is bool pickedUp && pickedUp;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private static void UpdateFlatMenuSliderDrag(Player player, Camera source,
+            Vector2 pointerScreenPosition)
+        {
+            var slider = flatMenuGrabbedSlider;
+            if (!flatMenuSliderCaptureActive || slider == null)
+                return;
+            try
+            {
+                var leftExtent = menuBarNubLeftExtentField?.GetValue(slider) as Transform;
+                var rightExtent = menuBarNubRightExtentField?.GetValue(slider) as Transform;
+                var targetCamera = player != null ? player.GetHUDCamera() : null;
+                if (targetCamera == null)
+                    targetCamera = source;
+                if (leftExtent == null || rightExtent == null || targetCamera == null)
+                    return;
+
+                // Use the same camera and pixel rectangle as pointer hit testing. This
+                // avoids MenuBarNub.GetCursorPos(), whose HUD/mouse coordinate path can
+                // select the joystick cursor while a VR controller owns the slider.
+                var targetRect = targetCamera.pixelRect;
+                var screenWidth = Mathf.Max(1f, Screen.width);
+                var normalizedX = Mathf.Clamp01(pointerScreenPosition.x / screenWidth);
+                var pointerX = targetRect.x + normalizedX * targetRect.width;
+                var leftX = targetCamera.WorldToScreenPoint(leftExtent.position).x;
+                var rightX = targetCamera.WorldToScreenPoint(rightExtent.position).x;
+                var span = rightX - leftX;
+                if (Mathf.Abs(span) < 0.001f)
+                    return;
+
+                var amount = Mathf.Clamp01((pointerX - leftX) / span);
+                var localPosition = slider.transform.localPosition;
+                localPosition.x = Mathf.Lerp(leftExtent.localPosition.x,
+                    rightExtent.localPosition.x, amount);
+                slider.transform.localPosition = localPosition;
+
+                // Preserve MFN's normal 40 Hz live-setting update cadence. PutDown()
+                // commits one final value when the controller button is released.
+                if (Time.unscaledTime >= nextFlatMenuSliderValueUpdateTime)
+                {
+                    nextFlatMenuSliderValueUpdateTime = Time.unscaledTime + 0.025f;
+                    slider.UpdateValue();
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR slider drag update failed: " +
+                    exception.Message);
+                ReleaseFlatMenuSlider();
+            }
+        }
+
+        private static void AcquireFlatMenuSlider(Menus.MenuBarNub slider)
+        {
+            if (slider == null)
+                return;
+            flatMenuGrabbedSlider = slider;
+            flatMenuSliderCaptureActive = true;
+            flatMenuSliderUsedVanillaPickup = false;
+            nextFlatMenuSliderValueUpdateTime = 0f;
+            try
+            {
+                if (menuBarNubPickedUpField != null)
+                {
+                    // MenuBarNub.PickUp disables MenuController globally. That is safe
+                    // for MFN's mouse flow, but it stops the pause-menu VR pointer from
+                    // receiving further drag frames. VR owns only this nub instead.
+                    menuBarNubPickedUpField.SetValue(slider, true);
+                    Player.current?.PlayMenuPickUp();
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR direct slider pickup failed; using vanilla: " +
+                    exception.Message);
+            }
+
+            flatMenuSliderUsedVanillaPickup = true;
+            slider.PickUp();
+        }
+
+        internal static bool OwnsFlatMenuSlider(Menus.MenuBarNub slider)
+        {
+            return flatMenuSliderCaptureActive &&
+                ReferenceEquals(flatMenuGrabbedSlider, slider);
+        }
+
+        private static void ReleaseFlatMenuSlider()
+        {
+            if (!flatMenuSliderCaptureActive)
+                return;
+            var slider = flatMenuGrabbedSlider;
+            var usedVanillaPickup = flatMenuSliderUsedVanillaPickup;
+            flatMenuGrabbedSlider = null;
+            flatMenuSliderCaptureActive = false;
+            flatMenuSliderUsedVanillaPickup = false;
+            nextFlatMenuSliderValueUpdateTime = 0f;
+            try
+            {
+                if (slider != null && IsFlatMenuSliderPickedUp(slider))
+                {
+                    if (usedVanillaPickup)
+                        slider.PutDown(default(InputAction.CallbackContext));
+                    else
+                    {
+                        menuBarNubPickedUpField?.SetValue(slider, false);
+                        slider.UpdateValue();
+                        Player.current?.PlayMenuPutDown();
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR slider release recovered safely: " +
+                    exception.Message);
+            }
+            finally
+            {
+                // PickUp disables MFN's entire MenuController. Always restore it when
+                // the VR-owned drag ends, even if the knob was destroyed with its menu.
+                Menus.MenuController.disabled = false;
+            }
         }
 
         private static void ConfigureMenuEye(Camera camera, RenderTexture target)
@@ -5746,12 +7089,19 @@ namespace MFNVRBridge
             camera.nearClipPlane = 0.03f;
             camera.farClipPlane = 50f;
 
-            foreach (var behaviour in camera.GetComponents<Behaviour>())
+            var cameraId = camera.GetInstanceID();
+            Camera cachedCamera;
+            if (!menuEyesWithEffectsDisabled.TryGetValue(cameraId, out cachedCamera) ||
+                !ReferenceEquals(cachedCamera, camera))
             {
-                if (behaviour != null && behaviour != camera)
-                    behaviour.enabled = false;
+                foreach (var behaviour in camera.GetComponents<Behaviour>())
+                {
+                    if (behaviour != null && behaviour != camera)
+                        behaviour.enabled = false;
+                }
+                menuEyesWithEffectsDisabled[cameraId] = camera;
+                camerasWithRenderEffectsEnabled.Remove(cameraId);
             }
-            camerasWithRenderEffectsEnabled.Remove(camera.GetInstanceID());
         }
 
         private static void EnsureMenuObjects(Camera source, Camera left, Camera right)
@@ -5832,6 +7182,10 @@ namespace MFNVRBridge
                 // their culling masks, item models, animations, post effects and cursor all
                 // remain exactly as the flat game expects.
                 CompositeInventoryCameras(source);
+                if (settingsMenuOpen)
+                    DrawCapturedSettingsMenu();
+                else if (menuSettingsButtonVisible)
+                    DrawMenuSettingsButton();
             }
             finally
             {
@@ -5839,6 +7193,337 @@ namespace MFNVRBridge
                 source.useOcclusionCulling = oldOcclusion;
                 if (menuScreen != null)
                     menuScreen.SetActive(screenWasActive);
+            }
+        }
+
+        private static void DrawMenuSettingsButton()
+        {
+            if (menuCapture == null)
+                return;
+            var previous = RenderTexture.active;
+            var matrixPushed = false;
+            try
+            {
+                EnsureMenuSettingsButtonTextures();
+                var texture = menuSettingsButtonHovered
+                    ? menuSettingsButtonHoverTexture
+                    : menuSettingsButtonTexture;
+                if (texture == null)
+                    return;
+                RenderTexture.active = menuCapture;
+                GL.PushMatrix();
+                matrixPushed = true;
+                GL.LoadPixelMatrix(0f, menuCapture.width, 0f, menuCapture.height);
+                var rectangle = new Rect(
+                    MenuSettingsButtonMinU * menuCapture.width,
+                    MenuSettingsButtonMinV * menuCapture.height,
+                    (MenuSettingsButtonMaxU - MenuSettingsButtonMinU) *
+                        menuCapture.width,
+                    (MenuSettingsButtonMaxV - MenuSettingsButtonMinV) *
+                        menuCapture.height);
+                Graphics.DrawTexture(rectangle, texture);
+                GL.PopMatrix();
+                matrixPushed = false;
+                menuSettingsButtonWarningLogged = false;
+            }
+            catch (Exception exception)
+            {
+                if (!menuSettingsButtonWarningLogged)
+                {
+                    menuSettingsButtonWarningLogged = true;
+                    Debug.LogWarning("MFNVR: could not composite the VR Settings " +
+                                     "button: " + exception);
+                }
+            }
+            finally
+            {
+                if (matrixPushed)
+                    GL.PopMatrix();
+                RenderTexture.active = previous;
+            }
+        }
+
+        private static void DrawCapturedSettingsMenu()
+        {
+            if (menuCapture == null)
+                return;
+            var previous = RenderTexture.active;
+            var matrixPushed = false;
+            try
+            {
+                EnsureCapturedSettingsTexture();
+                if (settingsMenuTexture == null)
+                    return;
+                RenderTexture.active = menuCapture;
+                GL.PushMatrix();
+                matrixPushed = true;
+                GL.LoadPixelMatrix(0f, menuCapture.width, 0f, menuCapture.height);
+                var rectangle = new Rect(
+                    SettingsPanelMinU * menuCapture.width,
+                    SettingsPanelMinV * menuCapture.height,
+                    (SettingsPanelMaxU - SettingsPanelMinU) * menuCapture.width,
+                    (SettingsPanelMaxV - SettingsPanelMinV) * menuCapture.height);
+                Graphics.DrawTexture(rectangle, settingsMenuTexture);
+                GL.PopMatrix();
+                matrixPushed = false;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("MFNVR: could not draw captured settings screen: " +
+                                 exception);
+            }
+            finally
+            {
+                if (matrixPushed)
+                    GL.PopMatrix();
+                RenderTexture.active = previous;
+            }
+        }
+
+        private static void EnsureCapturedSettingsTexture()
+        {
+            if (settingsMenuTexture != null && !settingsMenuTextureDirty)
+                return;
+            var replacement = CreateCapturedSettingsTexture();
+            if (replacement == null)
+                return;
+            if (settingsMenuTexture != null)
+                UnityEngine.Object.Destroy(settingsMenuTexture);
+            settingsMenuTexture = replacement;
+            settingsMenuTextureDirty = false;
+        }
+
+        private static Texture2D CreateCapturedSettingsTexture()
+        {
+            const int width = 1400;
+            const int height = 900;
+            using (var bitmap = new System.Drawing.Bitmap(width, height,
+                       System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            using (var titleFont = new System.Drawing.Font("Arial", 38f,
+                       System.Drawing.FontStyle.Bold,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var tabFont = new System.Drawing.Font("Arial", 22f,
+                       System.Drawing.FontStyle.Bold,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var rowFont = new System.Drawing.Font("Arial", 27f,
+                       System.Drawing.FontStyle.Bold,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var descriptionFont = new System.Drawing.Font("Arial", 17f,
+                       System.Drawing.FontStyle.Regular,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var valueFont = new System.Drawing.Font("Arial", 23f,
+                       System.Drawing.FontStyle.Regular,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var hintFont = new System.Drawing.Font("Arial", 20f,
+                       System.Drawing.FontStyle.Regular,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var stream = new MemoryStream())
+            {
+                graphics.SmoothingMode =
+                    System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.TextRenderingHint =
+                    System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                graphics.Clear(System.Drawing.Color.FromArgb(252, 8, 12, 20));
+                using (var header = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.FromArgb(255, 26, 54, 94)))
+                    graphics.FillRectangle(header, 0, 0, width, 95);
+                using (var foreground = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.White))
+                {
+                    graphics.DrawString("MFNVR SETTINGS", titleFont, foreground,
+                        new System.Drawing.PointF(34f, 24f));
+                    graphics.DrawString(
+                        "Point with the dominant controller  |  Dominant trigger or primary selects  |  Hold L3 for 2 seconds to close",
+                        hintFont, foreground, new System.Drawing.PointF(430f, 38f));
+                }
+
+                using (var closeBrush = new System.Drawing.SolidBrush(
+                           settingsMenuCloseHovered
+                               ? System.Drawing.Color.FromArgb(255, 205, 58, 62)
+                               : System.Drawing.Color.FromArgb(255, 112, 38, 44)))
+                using (var foreground = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.White))
+                {
+                    graphics.FillRectangle(closeBrush, 1315, 18, 70, 64);
+                    graphics.DrawString("X", titleFont, foreground,
+                        new System.Drawing.RectangleF(1315, 20, 70, 58),
+                        SettingsCenteredFormat);
+                }
+
+                for (var category = 0; category < SettingsMenuCategories.Length;
+                     category++)
+                {
+                    var x = 30 + category * 268;
+                    var selected = category == settingsMenuCategory;
+                    var hovered = category == settingsMenuHoveredTab;
+                    using (var brush = new System.Drawing.SolidBrush(selected
+                               ? System.Drawing.Color.FromArgb(255, 42, 103, 184)
+                               : hovered
+                                   ? System.Drawing.Color.FromArgb(255, 42, 65, 101)
+                                   : System.Drawing.Color.FromArgb(255, 24, 31, 45)))
+                    using (var foreground = new System.Drawing.SolidBrush(
+                               System.Drawing.Color.White))
+                    {
+                        graphics.FillRectangle(brush, x, 108, 250, 60);
+                        graphics.DrawString(SettingsMenuCategories[category], tabFont,
+                            foreground, new System.Drawing.RectangleF(x, 108, 250, 60),
+                            SettingsCenteredFormat);
+                    }
+                }
+
+                var row = 0;
+                for (var index = 0; index < SettingsMenuOptions.Length; index++)
+                {
+                    var option = SettingsMenuOptions[index];
+                    if (option.Category != settingsMenuCategory)
+                        continue;
+                    var y = 205 + row * 105;
+                    var hovered = index == settingsMenuHoveredOption;
+                    using (var rowBrush = new System.Drawing.SolidBrush(hovered
+                               ? System.Drawing.Color.FromArgb(255, 34, 54, 83)
+                               : System.Drawing.Color.FromArgb(248, 18, 25, 38)))
+                    using (var foreground = new System.Drawing.SolidBrush(
+                                System.Drawing.Color.White))
+                    {
+                        graphics.FillRectangle(rowBrush, 35, y, 1330, 76);
+                        if (string.IsNullOrEmpty(option.Description))
+                        {
+                            graphics.DrawString(option.Label, rowFont, foreground,
+                                new System.Drawing.PointF(62f, y + 21f));
+                        }
+                        else
+                        {
+                            graphics.DrawString(option.Label, rowFont, foreground,
+                                new System.Drawing.PointF(62f, y + 7f));
+                            using (var descriptionBrush = new System.Drawing.SolidBrush(
+                                       option.DescriptionIsWarning
+                                           ? System.Drawing.Color.FromArgb(255, 255, 190, 64)
+                                           : System.Drawing.Color.FromArgb(255, 167, 183, 207)))
+                                graphics.DrawString(option.Description, descriptionFont,
+                                    descriptionBrush,
+                                    new System.Drawing.RectangleF(64f, y + 42f, 520f, 26f));
+                        }
+                    }
+                    DrawCapturedSettingsControl(graphics, valueFont, option, index, y);
+                    row++;
+                }
+
+                bitmap.RotateFlip(System.Drawing.RotateFlipType.RotateNoneFlipY);
+                bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, false)
+                {
+                    name = "MFNVR Captured Settings Screen",
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                texture.LoadImage(stream.ToArray(), true);
+                return texture;
+            }
+        }
+
+        private static void DrawCapturedSettingsControl(System.Drawing.Graphics graphics,
+            System.Drawing.Font valueFont, SettingsMenuOption option, int index, int y)
+        {
+            var value = settingsMenuValues[index];
+            if (option.Toggle)
+            {
+                var enabled = value >= 0.5f;
+                using (var box = new System.Drawing.SolidBrush(enabled
+                           ? System.Drawing.Color.FromArgb(255, 46, 145, 235)
+                           : System.Drawing.Color.FromArgb(255, 24, 31, 45)))
+                using (var foreground = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.White))
+                {
+                    graphics.FillRectangle(box, 1240, y + 14, 48, 48);
+                    if (enabled)
+                        graphics.DrawString("X", valueFont, foreground,
+                            new System.Drawing.RectangleF(1240, y + 14, 48, 48),
+                            SettingsCenteredFormat);
+                }
+                return;
+            }
+
+            var normalized = option.Logarithmic
+                ? Mathf.InverseLerp(Mathf.Log(option.Minimum),
+                    Mathf.Log(option.Maximum),
+                    Mathf.Log(Mathf.Max(option.Minimum, value)))
+                : Mathf.InverseLerp(option.Minimum, option.Maximum, value);
+            using (var track = new System.Drawing.SolidBrush(
+                       System.Drawing.Color.FromArgb(255, 20, 29, 44)))
+            using (var fill = new System.Drawing.SolidBrush(
+                       System.Drawing.Color.FromArgb(255, 53, 128, 226)))
+            using (var foreground = new System.Drawing.SolidBrush(
+                       System.Drawing.Color.White))
+            {
+                graphics.FillRectangle(track, 610, y + 27, 590, 24);
+                graphics.FillRectangle(fill, 610, y + 27,
+                    Math.Max(2, (int)(590f * normalized)), 24);
+                var span = option.Maximum - option.Minimum;
+                var text = span > 50f ? value.ToString("0") :
+                    span < 0.1f ? value.ToString("0.000") : value.ToString("0.00");
+                graphics.DrawString(text, valueFont, foreground,
+                    new System.Drawing.RectangleF(1210, y + 14, 130, 48),
+                    SettingsCenteredFormat);
+            }
+        }
+
+        private static void EnsureMenuSettingsButtonTextures()
+        {
+            if (menuSettingsButtonTexture != null &&
+                menuSettingsButtonHoverTexture != null)
+                return;
+            menuSettingsButtonTexture = CreateMenuSettingsButtonTexture(false);
+            menuSettingsButtonHoverTexture = CreateMenuSettingsButtonTexture(true);
+        }
+
+        private static Texture2D CreateMenuSettingsButtonTexture(bool hovered)
+        {
+            const int width = 736;
+            const int height = 144;
+            using (var bitmap = new System.Drawing.Bitmap(width, height,
+                       System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+            using (var background = new System.Drawing.SolidBrush(hovered
+                       ? System.Drawing.Color.FromArgb(250, 31, 173, 235)
+                       : System.Drawing.Color.FromArgb(246, 14, 19, 28)))
+            using (var border = new System.Drawing.Pen(
+                       System.Drawing.Color.FromArgb(255, 245, 194, 30), 7f))
+            using (var foreground = new System.Drawing.SolidBrush(
+                       System.Drawing.Color.White))
+            using (var font = new System.Drawing.Font("Arial", 54f,
+                       System.Drawing.FontStyle.Bold,
+                       System.Drawing.GraphicsUnit.Pixel))
+            using (var format = new System.Drawing.StringFormat
+                   {
+                       Alignment = System.Drawing.StringAlignment.Center,
+                       LineAlignment = System.Drawing.StringAlignment.Center
+                   })
+            using (var stream = new MemoryStream())
+            {
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.TextRenderingHint =
+                    System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                graphics.Clear(System.Drawing.Color.Transparent);
+                graphics.FillRectangle(background, 3f, 3f, width - 6f, height - 6f);
+                graphics.DrawRectangle(border, 4f, 4f, width - 8f, height - 8f);
+                graphics.DrawString("VR SETTINGS", font, foreground,
+                    new System.Drawing.RectangleF(0f, 0f, width, height), format);
+                // System.Drawing uses a top-left bitmap origin while this render-texture
+                // pixel matrix uses a bottom-left origin. Flip only vertically; rotating
+                // 180 degrees also mirrors the lettering horizontally.
+                bitmap.RotateFlip(System.Drawing.RotateFlipType.RotateNoneFlipY);
+                bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false, false)
+                {
+                    name = hovered
+                        ? "MFNVR Menu Settings Button Hover"
+                        : "MFNVR Menu Settings Button",
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                texture.LoadImage(stream.ToArray(), true);
+                return texture;
             }
         }
 
@@ -5857,19 +7542,25 @@ namespace MFNVRBridge
                     ? inventoryCursorCameraField.GetValue(player) as Camera
                     : null;
 
-                var cameras = new List<Camera>(2);
-                if (inventoryCamera != null && inventoryCamera != source &&
-                    inventoryCamera.enabled && inventoryCamera.gameObject.activeInHierarchy)
-                    cameras.Add(inventoryCamera);
-                if (cursorCamera != null && cursorCamera != source && cursorCamera != inventoryCamera &&
-                    cursorCamera.enabled && cursorCamera.gameObject.activeInHierarchy)
-                    cameras.Add(cursorCamera);
+                var renderInventory = inventoryCamera != null && inventoryCamera != source &&
+                    inventoryCamera.enabled && inventoryCamera.gameObject.activeInHierarchy;
+                var renderCursor = cursorCamera != null && cursorCamera != source &&
+                    cursorCamera != inventoryCamera && cursorCamera.enabled &&
+                    cursorCamera.gameObject.activeInHierarchy;
+                if (renderInventory && renderCursor && cursorCamera.depth < inventoryCamera.depth)
+                {
+                    RenderCameraIntoMenuCapture(cursorCamera);
+                    RenderCameraIntoMenuCapture(inventoryCamera);
+                }
+                else
+                {
+                    if (renderInventory)
+                        RenderCameraIntoMenuCapture(inventoryCamera);
+                    if (renderCursor)
+                        RenderCameraIntoMenuCapture(cursorCamera);
+                }
 
-                cameras.Sort((a, b) => a.depth.CompareTo(b.depth));
-                foreach (var camera in cameras)
-                    RenderCameraIntoMenuCapture(camera);
-
-                if (cameras.Count > 0)
+                if (renderInventory || renderCursor)
                     inventoryCaptureWarningLogged = false;
             }
             catch (Exception exception)
@@ -5904,6 +7595,12 @@ namespace MFNVRBridge
 
         private static void DestroyMenuObjects()
         {
+            if (menuSettingsButtonTexture != null)
+                UnityEngine.Object.Destroy(menuSettingsButtonTexture);
+            if (menuSettingsButtonHoverTexture != null)
+                UnityEngine.Object.Destroy(menuSettingsButtonHoverTexture);
+            if (settingsMenuTexture != null)
+                UnityEngine.Object.Destroy(settingsMenuTexture);
             if (menuScreen != null)
                 UnityEngine.Object.Destroy(menuScreen);
             if (menuMaterial != null)
@@ -5914,6 +7611,13 @@ namespace MFNVRBridge
                 UnityEngine.Object.Destroy(menuCapture);
             }
             menuScreen = null;
+            menuSettingsButtonTexture = null;
+            menuSettingsButtonHoverTexture = null;
+            settingsMenuTexture = null;
+            settingsMenuTextureDirty = true;
+            menuSettingsButtonHovered = false;
+            menuSettingsButtonVisible = false;
+            menuSettingsButtonWarningLogged = false;
             menuMaterial = null;
             menuCapture = null;
             menuSource = null;
@@ -6108,6 +7812,19 @@ namespace MFNVRBridge
         }
     }
 
+    [HarmonyPatch(typeof(Menus.MenuBarNub), nameof(Menus.MenuBarNub.Update))]
+    internal static class VrFlatMenuSliderUpdatePatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(Menus.MenuBarNub __instance)
+        {
+            // While a VR controller owns this nub, RenderBridge updates it from the
+            // pointer ray. Suppress the vanilla HUD-camera/mouse calculation so it
+            // cannot overwrite that position with the joystick cursor.
+            return !RenderBridge.OwnsFlatMenuSlider(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(NewIntentoryDropdown), nameof(NewIntentoryDropdown.DoAction))]
     internal static class VrToolboxDropdownOwnerPatch
     {
@@ -6149,6 +7866,7 @@ namespace MFNVRBridge
         {
             if (__instance == null || ItemBoxParent.current == null)
                 return;
+            RenderBridge.InvalidateToolboxVisualCache();
             var items = InventoryItemsField?.GetValue(__instance) as List<ItemInInventory>;
             if (items == null || items.Count < 2)
                 return;
@@ -6184,11 +7902,34 @@ namespace MFNVRBridge
     internal static class DirectProjectilePatch
     {
         [HarmonyPrefix]
-        private static void Prefix(ref Vector3 direction, Player fromPlayer,
+        private static bool Prefix(ref Vector3 direction, Player fromPlayer,
             ref Vector3 changeToCollisionAtThisPoint)
         {
+            if (RenderBridge.IsSettingsMenuOpen() && fromPlayer != null)
+                return false;
             RenderBridge.OverridePlayerProjectile(ref direction, fromPlayer,
                 ref changeToCollisionAtThisPoint);
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.UseItem))]
+    internal static class VrSettingsSuppressUseItemPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix()
+        {
+            return !RenderBridge.IsSettingsMenuOpen();
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.CancelItem))]
+    internal static class VrSettingsSuppressCancelItemPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix()
+        {
+            return !RenderBridge.IsSettingsMenuOpen();
         }
     }
 

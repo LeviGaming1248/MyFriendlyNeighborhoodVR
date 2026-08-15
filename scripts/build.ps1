@@ -40,7 +40,9 @@ Write-Host 'Building and applying the required MFNVR camera/render-bridge patch.
 if ($LASTEXITCODE -ne 0) {
     throw "Core camera patcher build failed with exit code $LASTEXITCODE."
 }
-Copy-Item -LiteralPath $unpatchedCore -Destination $patchedCore -Force
+if (Test-Path -LiteralPath $patchedCore) {
+    Remove-Item -LiteralPath $patchedCore -Force
+}
 & $patcherOutput $unpatchedCore $patchedCore
 if ($LASTEXITCODE -ne 0) {
     throw "Core camera patching failed with exit code $LASTEXITCODE."
@@ -50,7 +52,7 @@ $nativeSource = Join-Path $repoRoot 'native'
 $nativeBuild = Join-Path $nativeSource 'build'
 
 Write-Host 'Configuring native OpenXR bridge...'
-& cmake -S $nativeSource -B $nativeBuild -A x64
+& cmake -S $nativeSource -B $nativeBuild -G 'Visual Studio 17 2022' -A x64
 if ($LASTEXITCODE -ne 0) {
     throw "Native CMake configuration failed with exit code $LASTEXITCODE."
 }

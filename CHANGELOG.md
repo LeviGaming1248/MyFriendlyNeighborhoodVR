@@ -1,6 +1,9 @@
-# MFNVR v0.3.0 — 2026-08-13
+# MFNVR v1.0.0 — 2026-08-15
+MFNVR's first full release.
 
-- Added an option to use your right hand as a pointer in interaction menus. In the toolbox or inventory use Right trigger to pick up an item, R3 to rotate items. And Left trigger to open the action menu. (Enabled by default)
-- Added an option to remove the normal camera movements when interacting with prompts. (Disabled by default)
-- Improved weapon accuracy.
-- Improved physical wrench melee.
+- Added a config menu by holding L3 for 2 seconds.
+- Performance improvements.
+- The pointer now shows up in the main menu (when enabled)
+- Fixed pointer getting stuck to slider in settings.
+- UI now shows up in interaction menus.
+- Your hands now match the character your playing as in Neighborhorde.

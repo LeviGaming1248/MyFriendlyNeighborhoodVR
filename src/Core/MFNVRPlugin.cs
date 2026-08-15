@@ -10,7 +10,6 @@ using HarmonyLib;
 using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.Rendering;
 using UnityEngine.XR;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -21,8 +20,8 @@ namespace MFNVR
     public sealed class MFNVRPlugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.mfnvr.prototype";
-        public const string PluginName = "MFN VR Prototype";
-        public const string PluginVersion = "0.4.1";
+        public const string PluginName = "MFNVR";
+        public const string PluginVersion = "1.0.0";
 
         private enum TurningMode
         {
@@ -71,11 +70,6 @@ namespace MFNVR
         private RenderTexture rightEyeTexture;
         private Camera gameplayCamera;
         private Camera gameplayHudCamera;
-        private Camera captureAttachedTo;
-        private CommandBuffer leftWorldCapture;
-        private CommandBuffer rightWorldCapture;
-        private Quaternion lastHeadRotation;
-        private bool hasLastHeadRotation;
         private readonly FieldInfo rotating180Field = AccessTools.Field(typeof(Player), "rotatingCamera180");
         private readonly FieldInfo rotatingRightField = AccessTools.Field(typeof(Player), "rotatingCameraRight");
         private readonly FieldInfo rotatingLeftField = AccessTools.Field(typeof(Player), "rotatingCameraLeft");
@@ -109,7 +103,6 @@ namespace MFNVR
         private bool touchInputReported;
         private readonly FieldInfo equippedPlayerField = AccessTools.Field(typeof(EquippedManager), "myPlayer");
         private readonly FieldInfo modelGoesHereField = AccessTools.Field(typeof(EquippedManager), "modelGoesHere");
-        private readonly FieldInfo wrenchHitSoundField = AccessTools.Field(typeof(EquippedManager), "wrenchHit");
         private EquippedManager motionEquippedManager;
         private Player motionPlayer;
         private Transform rightHandAnchor;
@@ -137,13 +130,6 @@ namespace MFNVR
         private int nextMotionDiagnosticFrame;
         private int lastPrimaryMotionFrame = -1;
         private bool motionManagerReported;
-        private Vector3 previousWrenchHeadPosition;
-        private Vector3 previousWrenchHeadLocalPosition;
-        private bool hasPreviousWrenchHead;
-        private readonly HashSet<int> wrenchHitsThisSwing = new HashSet<int>();
-        private readonly Dictionary<int, float> wrenchLastHitTimes = new Dictionary<int, float>();
-        private float wrenchPoseElapsed;
-        private int wrenchFastFrames;
         private bool rightAimValid;
         private Vector3 rightAimWorldPosition;
         private Quaternion rightAimWorldRotation;
@@ -227,7 +213,6 @@ namespace MFNVR
             Camera.onPreCull -= OnCameraPreCull;
             Camera.onPostRender -= OnCameraPostRender;
             GL.invertCulling = false;
-            RemoveWorldCapture();
             if (touchGamepad != null && touchGamepad.added)
                 InputSystem.RemoveDevice(touchGamepad);
             if (rightHandAnchor != null)
@@ -666,9 +651,6 @@ namespace MFNVR
             if (trackedRightWrist != null)
                 trackedItem.transform.position += rightHandAnchor.position - trackedRightWrist.position;
             ApplyTrackedArms();
-            if (finalAnimationPass && rightAimValid && motionEquippedManager != null)
-                UpdatePhysicalWrench(motionEquippedManager, currentRightGripLocalPosition,
-                    currentRightAimLocalRotation);
         }
 
         private static void OnWeaponAimPrefix()
@@ -1027,10 +1009,6 @@ namespace MFNVR
             DestroyProceduralArm(ref proceduralLeftArm);
             twoHandedGrip = false;
             previousLeftGripPressed = leftGripPressed;
-            hasPreviousWrenchHead = false;
-            wrenchPoseElapsed = 0f;
-            wrenchFastFrames = 0;
-            wrenchHitsThisSwing.Clear();
             if (trackedItem == null)
                 return;
 
@@ -1281,113 +1259,6 @@ namespace MFNVR
             return Quaternion.identity;
         }
 
-        private void UpdatePhysicalWrench(EquippedManager equippedManager, Vector3 gripLocalPosition,
-            Quaternion aimLocalRotation)
-        {
-            if (trackedItem == null || equippedManager.GetCurrentItem() != InventoryItem.Wrench)
-            {
-                hasPreviousWrenchHead = false;
-                wrenchPoseElapsed = 0f;
-                wrenchFastFrames = 0;
-                wrenchHitsThisSwing.Clear();
-                return;
-            }
-
-            if (trackedItem.firePosition == null)
-                return;
-            var headPosition = trackedItem.firePosition.position;
-            var headInAnchor = rightHandAnchor.InverseTransformPoint(headPosition);
-            var headLocalPosition = gripLocalPosition + aimLocalRotation * headInAnchor;
-            wrenchPoseElapsed += Mathf.Max(Time.unscaledDeltaTime, 0.001f);
-            if (!hasPreviousWrenchHead)
-            {
-                previousWrenchHeadPosition = headPosition;
-                previousWrenchHeadLocalPosition = headLocalPosition;
-                hasPreviousWrenchHead = true;
-                wrenchPoseElapsed = 0f;
-                return;
-            }
-
-            var localDelta = headLocalPosition - previousWrenchHeadLocalPosition;
-            if (localDelta.sqrMagnitude < 0.00000025f)
-            {
-                // The hand did not move in tracking space. Keep the collision origin abreast of
-                // player locomotion so walking cannot become a long sweep on the next real swing.
-                previousWrenchHeadPosition = headPosition;
-                return;
-            }
-            var worldDelta = headPosition - previousWrenchHeadPosition;
-            var elapsed = Mathf.Max(wrenchPoseElapsed, 0.001f);
-            wrenchPoseElapsed = 0f;
-            if (localDelta.magnitude > 0.35f)
-            {
-                previousWrenchHeadPosition = headPosition;
-                previousWrenchHeadLocalPosition = headLocalPosition;
-                wrenchFastFrames = 0;
-                wrenchHitsThisSwing.Clear();
-                return;
-            }
-            var speed = localDelta.magnitude / elapsed;
-            if (speed < 0.8f)
-            {
-                wrenchHitsThisSwing.Clear();
-                wrenchFastFrames = 0;
-            }
-            else if (speed >= 1.8f)
-                wrenchFastFrames++;
-            if (speed >= 1.8f && wrenchFastFrames >= 2 && worldDelta.sqrMagnitude > 0.000001f)
-            {
-                const float headRadius = 0.065f;
-                var hits = Physics.SphereCastAll(previousWrenchHeadPosition, headRadius,
-                    worldDelta.normalized, worldDelta.magnitude, ~0, QueryTriggerInteraction.Collide);
-                foreach (var hit in hits)
-                    DamageFromPhysicalWrench(equippedManager, hit.collider, hit.point, speed);
-            }
-            previousWrenchHeadPosition = headPosition;
-            previousWrenchHeadLocalPosition = headLocalPosition;
-        }
-
-        private void DamageFromPhysicalWrench(EquippedManager equippedManager, Collider collider,
-            Vector3 hitPoint, float speed)
-        {
-            if (collider == null)
-                return;
-            var enemy = collider.GetComponentInParent<EnemyParent>();
-            var sender = enemy == null ? collider.GetComponentInParent<EnemyDamageSender>() : null;
-            if (enemy == null && sender == null)
-                return;
-            var hitObject = enemy != null ? enemy.gameObject : sender.gameObject;
-            var hitId = hitObject.GetInstanceID();
-            if (!wrenchHitsThisSwing.Add(hitId))
-                return;
-
-            if (wrenchLastHitTimes.TryGetValue(hitId, out var lastHit) && Time.unscaledTime - lastHit < 0.6f)
-                return;
-            wrenchLastHitTimes[hitId] = Time.unscaledTime;
-
-            var speedMultiplier = Mathf.Lerp(0.5f, 4f, Mathf.InverseLerp(1.8f, 7.5f, speed));
-            var damage = Mathf.Max(0.25f, trackedItem.meleeDamage * speedMultiplier);
-            var difficulty = SaveData.GetIntData("Difficulty");
-            if (difficulty == 0) damage *= 2f;
-            else if (difficulty == 1) damage *= 1.3f;
-            var forceStun = speed >= 3f;
-            var alwaysStun = speed >= 5.5f;
-            var point = hitPoint == Vector3.zero ? collider.ClosestPoint(rightHandAnchor.position) : hitPoint;
-            if (enemy != null)
-                enemy.Damage(damage, Player.current, point, forceStun, true, false,
-                    alwaysStun, true);
-            else
-                sender.Damage(damage, Player.current, point, forceStun, true, false, alwaysStun);
-            var impactSound = wrenchHitSoundField?.GetValue(equippedManager) as AudioLevelAdjuster;
-            if (impactSound != null)
-            {
-                impactSound.SetPitch(UnityEngine.Random.Range(0.96f, 1.04f));
-                impactSound.PlayAllSources();
-            }
-            MFN_ApplyControllerHaptic(1, Mathf.Clamp01(speed / 7.5f), 0.07f, 0f);
-            Logger.LogInfo($"Physical wrench hit {hitObject.name}: speed={speed:F2}m/s damage={damage:F2}.");
-        }
-
         private void BeginWeaponAimOverride()
         {
             if (!rightAimValid)
@@ -1421,21 +1292,6 @@ namespace MFNVR
             if (motionEquippedManager != null)
                 motionEquippedManager.transform.rotation = savedEquippedManagerRotation;
             weaponAimCamera = null;
-        }
-        private void ApplyHeadLook(Player player)
-        {
-            if (IsScriptedCameraMove(player))
-            {
-                hasLastHeadRotation = false;
-                return;
-            }
-            if (MFN_GetHeadOrientation(out var x,out var y,out var z,out var w)==0) return;
-            var now=new Quaternion(-x,-y,z,w);
-            if(!hasLastHeadRotation){lastHeadRotation=now;hasLastHeadRotation=true;return;}
-            var delta=now*Quaternion.Inverse(lastHeadRotation); var e=delta.eulerAngles;
-            var pitch=e.x>180f?e.x-360f:e.x; var yaw=e.y>180f?e.y-360f:e.y;
-            AccessTools.Method(typeof(Player),"RotateCamera")?.Invoke(player,new object[]{pitch,yaw});
-            lastHeadRotation=now;
         }
         private bool IsScriptedCameraMove(Player player)
         {
@@ -1529,7 +1385,6 @@ namespace MFNVR
                 rightEyeTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
                 leftEyeTexture.Create();
                 rightEyeTexture.Create();
-                RemoveWorldCapture();
                 Logger.LogInfo($"VR eye render size: {width}x{height} ({activeResolutionScale:0.##}x of {recommendedWidth}x{recommendedHeight}).");
             }
 
@@ -1545,8 +1400,6 @@ namespace MFNVR
 
             var transform = sourceCamera.transform;
             ConfigureTrackedPair(sourceCamera, leftEyeCamera, rightEyeCamera);
-
-            RemoveWorldCapture();
 
             var hudCamera = player.GetHUDCamera();
             if (hudCamera != null)
@@ -1819,80 +1672,6 @@ namespace MFNVR
             return true;
         }
 
-        private IEnumerator RenderStereoAtEndOfFrame()
-        {
-            var endOfFrame = new WaitForEndOfFrame();
-            while (true)
-            {
-                yield return endOfFrame;
-                if (gameplayCamera == null || leftEyeTexture == null || rightEyeTexture == null)
-                    continue;
-
-                RenderCameraForEyes(gameplayCamera, true);
-                if (gameplayHudCamera != null && gameplayHudCamera != gameplayCamera)
-                    RenderCameraForEyes(gameplayHudCamera, false);
-            }
-        }
-
-        private void RenderCameraForEyes(Camera camera, bool offsetForStereo)
-        {
-            var originalTarget = camera.targetTexture;
-            var originalPosition = camera.transform.position;
-            var originalRotation = camera.transform.rotation;
-            var originalOcclusion = camera.useOcclusionCulling;
-            try
-            {
-                camera.useOcclusionCulling = false;
-                var eyeOffset = offsetForStereo ? originalRotation * Vector3.right * 0.032f : Vector3.zero;
-                camera.targetTexture = leftEyeTexture;
-                camera.transform.SetPositionAndRotation(originalPosition - eyeOffset, originalRotation);
-                camera.Render();
-                camera.targetTexture = rightEyeTexture;
-                camera.transform.SetPositionAndRotation(originalPosition + eyeOffset, originalRotation);
-                camera.Render();
-            }
-            catch (System.Exception exception)
-            {
-                Logger.LogWarning($"Stereo camera render failed: {exception.GetType().Name}: {exception.Message}");
-            }
-            finally
-            {
-                camera.targetTexture = originalTarget;
-                camera.transform.SetPositionAndRotation(originalPosition, originalRotation);
-                camera.useOcclusionCulling = originalOcclusion;
-            }
-        }
-
-        private void AttachWorldCapture(Camera camera)
-        {
-            if (captureAttachedTo == camera || leftEyeTexture == null || rightEyeTexture == null)
-                return;
-
-            RemoveWorldCapture();
-            leftWorldCapture = new CommandBuffer { name = "MFN VR Left World Capture" };
-            rightWorldCapture = new CommandBuffer { name = "MFN VR Right World Capture" };
-            leftWorldCapture.Blit(BuiltinRenderTextureType.CameraTarget, leftEyeTexture);
-            rightWorldCapture.Blit(BuiltinRenderTextureType.CameraTarget, rightEyeTexture);
-            camera.AddCommandBuffer(CameraEvent.AfterEverything, leftWorldCapture);
-            camera.AddCommandBuffer(CameraEvent.AfterEverything, rightWorldCapture);
-            captureAttachedTo = camera;
-        }
-
-        private void RemoveWorldCapture()
-        {
-            if (captureAttachedTo != null)
-            {
-                if (leftWorldCapture != null) captureAttachedTo.RemoveCommandBuffer(CameraEvent.AfterEverything, leftWorldCapture);
-                if (rightWorldCapture != null) captureAttachedTo.RemoveCommandBuffer(CameraEvent.AfterEverything, rightWorldCapture);
-            }
-
-            leftWorldCapture?.Release();
-            rightWorldCapture?.Release();
-            leftWorldCapture = null;
-            rightWorldCapture = null;
-            captureAttachedTo = null;
-        }
-
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             DestroyProceduralArm(ref proceduralRightArm);
@@ -1907,7 +1686,6 @@ namespace MFNVR
             motionPlayer = null;
             motionManagerReported = false;
             rightAimValid = false;
-            hasPreviousWrenchHead = false;
             leftGripPoseValid = false;
             twoHandedGrip = false;
             previousLeftGripPressed = leftGripPressed;
@@ -1916,10 +1694,6 @@ namespace MFNVR
             trackedRightWrist = null;
             rightArmRig = null;
             leftArmRig = null;
-            wrenchPoseElapsed = 0f;
-            wrenchFastFrames = 0;
-            wrenchHitsThisSwing.Clear();
-            wrenchLastHitTimes.Clear();
             Logger.LogInfo($"Scene loaded: {scene.name} ({mode}).");
             ReportCameras();
         }

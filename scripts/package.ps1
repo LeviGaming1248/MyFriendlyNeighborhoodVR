@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$GameDir,
 
-    [string]$Version = '0.3.0'
+    [string]$Version = '1.0.0'
 )
 
 $ErrorActionPreference = 'Stop'

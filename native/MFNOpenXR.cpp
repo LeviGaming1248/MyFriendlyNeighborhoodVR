@@ -15,12 +15,11 @@
 #include <cstring>
 #include <mutex>
 #include <utility>
-#include <vector>
-
 namespace
 {
     IUnityInterfaces* g_unityInterfaces = nullptr;
     IUnityGraphicsD3D11* g_d3d11 = nullptr;
+    ID3D11DeviceContext* g_immediateContext = nullptr;
     XrInstance g_instance = XR_NULL_HANDLE;
     XrSession g_session = XR_NULL_HANDLE;
     XrSystemId g_systemId = XR_NULL_SYSTEM_ID;
@@ -438,7 +437,12 @@ namespace
             g_d3d11 = g_unityInterfaces->Get<IUnityGraphicsD3D11>();
 
         if (eventType == kUnityGfxDeviceEventShutdown)
+        {
+            if (g_immediateContext != nullptr)
+                g_immediateContext->Release();
+            g_immediateContext = nullptr;
             g_d3d11 = nullptr;
+        }
     }
 
     void CreateD3D11Session()
@@ -929,7 +933,11 @@ float4 PS(Output input) : SV_Target {
         if (XR_FAILED(xrBeginFrame(g_session, &beginInfo)))
             return;
 
-        std::vector<XrCompositionLayerBaseHeader*> layers;
+        // A submitted frame contains at most one projection layer. A vector here caused
+        // a heap allocation on every OpenXR frame; keep the fixed-size frame state on the
+        // stack instead.
+        const XrCompositionLayerBaseHeader* layers[1] = {};
+        uint32_t layerCount = 0;
         XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerProjectionView views[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
 
@@ -965,7 +973,9 @@ float4 PS(Output input) : SV_Target {
                     renderedViews[0] = xrViews[0];
                     renderedViews[1] = xrViews[1];
                 }
-                auto* context = g_d3d11->GetDevice() ? [&]() { ID3D11DeviceContext* value = nullptr; g_d3d11->GetDevice()->GetImmediateContext(&value); return value; }() : nullptr;
+                if (g_immediateContext == nullptr && g_d3d11->GetDevice() != nullptr)
+                    g_d3d11->GetDevice()->GetImmediateContext(&g_immediateContext);
+                auto* context = g_immediateContext;
                 for (uint32_t eye = 0; eye < 2; ++eye)
                 {
                     uint32_t imageIndex = 0;
@@ -1004,20 +1014,19 @@ float4 PS(Output input) : SV_Target {
                     views[eye].subImage.swapchain = g_eyeSwapchains[eye].handle;
                     views[eye].subImage.imageRect.extent = {g_eyeSwapchains[eye].width, g_eyeSwapchains[eye].height};
                 }
-                if (context != nullptr)
-                    context->Release();
                 projection.space = g_localSpace;
                 projection.viewCount = 2;
                 projection.views = views;
-                layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection));
+                layers[layerCount++] =
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
             }
         }
 
         XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
         endInfo.displayTime = frameState.predictedDisplayTime;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-        endInfo.layerCount = static_cast<uint32_t>(layers.size());
-        endInfo.layers = layers.empty() ? nullptr : const_cast<const XrCompositionLayerBaseHeader**>(layers.data());
+        endInfo.layerCount = layerCount;
+        endInfo.layers = layerCount != 0 ? layers : nullptr;
         xrEndFrame(g_session, &endInfo);
     }
 
@@ -1042,6 +1051,9 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnit
 
 extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload()
 {
+    if (g_immediateContext != nullptr)
+        g_immediateContext->Release();
+    g_immediateContext = nullptr;
     for (int hand = 0; hand < 2; ++hand)
     {
         if (g_gripSpaces[hand] != XR_NULL_HANDLE) xrDestroySpace(g_gripSpaces[hand]);

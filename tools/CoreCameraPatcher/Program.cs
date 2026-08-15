@@ -8,9 +8,13 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        if (args.Length == 4 && args[0] == "--identity-only")
+            return PatchReleaseIdentity(args[1], args[2], args[3]);
+
         if (args.Length != 2)
         {
             Console.Error.WriteLine("Usage: CoreCameraPatcher <working-input.dll> <patched-output.dll>");
+            Console.Error.WriteLine("   or: CoreCameraPatcher --identity-only <input.dll> <output.dll> <version>");
             return 2;
         }
 
@@ -106,6 +110,72 @@ internal static class Program
         configureEyes.Body.MaxStackSize = Math.Max(configureEyes.Body.MaxStackSize, 5);
         assembly.Write(Path.GetFullPath(args[1]));
         Console.WriteLine("Patched core to use the separated VR render bridge.");
+        return 0;
+    }
+
+    private static int PatchReleaseIdentity(string inputPath, string outputPath,
+        string releaseVersion)
+    {
+        Version parsedVersion;
+        if (!Version.TryParse(releaseVersion + ".0", out parsedVersion))
+        {
+            Console.Error.WriteLine("Release version must use major.minor.patch format.");
+            return 2;
+        }
+
+        var assembly = AssemblyDefinition.ReadAssembly(Path.GetFullPath(inputPath),
+            new ReaderParameters { ReadSymbols = false, InMemory = true });
+        var module = assembly.MainModule;
+        var plugin = module.Types.Single(type => type.FullName == "MFNVR.MFNVRPlugin");
+        const string releaseName = "MFNVR";
+
+        foreach (var field in plugin.Fields)
+        {
+            if (field.Name == "PluginName")
+                field.Constant = releaseName;
+            else if (field.Name == "PluginVersion")
+                field.Constant = releaseVersion;
+        }
+
+        var pluginAttribute = plugin.CustomAttributes.Single(attribute =>
+            attribute.AttributeType.FullName == "BepInEx.BepInPlugin");
+        pluginAttribute.ConstructorArguments[1] = new CustomAttributeArgument(
+            module.TypeSystem.String, releaseName);
+        pluginAttribute.ConstructorArguments[2] = new CustomAttributeArgument(
+            module.TypeSystem.String, releaseVersion);
+
+        foreach (var method in plugin.Methods.Where(method => method.HasBody))
+        {
+            foreach (var instruction in method.Body.Instructions.Where(instruction =>
+                         instruction.OpCode == OpCodes.Ldstr))
+            {
+                var text = instruction.Operand as string;
+                if (text == "MFN VR Prototype")
+                    instruction.Operand = releaseName;
+                else if (text == "0.3.0" || text == "0.4.1")
+                    instruction.Operand = releaseVersion;
+            }
+        }
+
+        assembly.Name.Version = parsedVersion;
+        foreach (var attribute in assembly.CustomAttributes)
+        {
+            var attributeName = attribute.AttributeType.FullName;
+            if (attribute.ConstructorArguments.Count != 1)
+                continue;
+            if (attributeName == "System.Reflection.AssemblyFileVersionAttribute" ||
+                attributeName == "System.Reflection.AssemblyInformationalVersionAttribute")
+            {
+                attribute.ConstructorArguments[0] = new CustomAttributeArgument(
+                    module.TypeSystem.String, attributeName.EndsWith(
+                        "AssemblyFileVersionAttribute", StringComparison.Ordinal)
+                        ? releaseVersion + ".0"
+                        : releaseVersion);
+            }
+        }
+
+        assembly.Write(Path.GetFullPath(outputPath));
+        Console.WriteLine("Updated MFNVR release identity to " + releaseVersion + ".");
         return 0;
     }
 

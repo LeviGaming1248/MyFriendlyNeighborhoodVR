@@ -1,8 +1,4 @@
-# MFNVR
-
-A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking and motion controller support to the game.
-
-<img width="518" height="222" alt="MFNVR" src="https://github.com/user-attachments/assets/d5604352-5471-4290-8fdf-664fc0fa065d" />
+A VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking and motion controller support to the game.
 
 
 # Requirements
@@ -24,10 +20,7 @@ A work-in-progress VR mod for **My Friendly Neighborhood** that brings full 6DOF
 
 
 # Config file
-To edit VR mods config go to the games root folder ** > BepInEx > config ** and edit the MFNVR.cfg file.
-  
-
-
+To edit VR mods config hold L2 down for 2 seconds or press the VR Settings button in the main or pause menus to open up a menu that lets you edit settings to your liking.
 
 
 | Current Features |
@@ -46,19 +39,10 @@ To edit VR mods config go to the games root folder ** > BepInEx > config ** and 
 | OpenXR support, currently developed and tested using Oculus Rift S |
 
 # Planned Features
-
-
-- Improved weapon handling.
-- Better menu interactions.
+- Left handed mode.
+- Optional dual wielding.
 - Possibly manual reloading.
-- Performance improvements.
 - Additional comfort options.
-
-This project is still very much a work in progress. Bugs, visual issues, incomplete interactions, compatibility problems, and performance issues should be expected.
-
-More VR interactions, controller improvements, polish, and quality-of-life features are planned.
-
-Very much a work in progress. More features are coming soon.
 
 
 # DISCLAIMER
@@ -66,13 +50,3 @@ Very much a work in progress. More features are coming soon.
 This project was developed entirely using AI code generation with Codex. None of the source code has been manually written or reviewed by a human. As a result, the code may contain bugs, security issues, performance problems, or other unintended behavior.
 
 Use this project at your own risk. Code reviews, bug reports, testing feedback, and pull requests are welcome to help improve its quality and reliability.
-
-
-
-<img width="700" height="540" alt="image" src="https://github.com/user-attachments/assets/6b563b0d-3c79-45c3-a753-315a75af1b34" />
-
-
-<img width="700" height="540" alt="image" src="https://github.com/user-attachments/assets/82c65604-8a9f-4d29-ba6f-d8af8edc7e9a" />
-
-
-<img width="700" height="540" alt="image" src="https://github.com/user-attachments/assets/ad328172-ae66-4069-8aac-f88d4f8c5fd9" />

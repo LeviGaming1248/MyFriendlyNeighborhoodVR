@@ -6,6 +6,9 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
     <BaseIntermediateOutputPath>obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <MFNManagedDir>$(MFNGameDir)\My Friendly Neighborhood_Data\Managed</MFNManagedDir>
     <BepInExCoreDir>$(MFNGameDir)\BepInEx\core</BepInExCoreDir>

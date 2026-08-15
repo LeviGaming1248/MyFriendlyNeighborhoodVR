@@ -12,6 +12,8 @@
     <Reference Include="UnityEngine"><HintPath>$(MFNManagedDir)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(MFNManagedDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(MFNManagedDir)\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(MFNManagedDir)\UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Drawing"><HintPath>$(MFNManagedDir)\System.Drawing.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Unity.InputSystem"><HintPath>$(MFNManagedDir)\Unity.InputSystem.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>
