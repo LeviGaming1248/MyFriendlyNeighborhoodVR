@@ -1,4 +1,8 @@
+# MFNVR
+
 A VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking and motion controller support to the game.
+
+<img width="518" height="222" alt="MFNVR" src="https://github.com/user-attachments/assets/d5604352-5471-4290-8fdf-664fc0fa065d" />
 
 
 # Requirements
@@ -9,7 +13,7 @@ A VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking an
 
 ## Installation
 
-1. Download `MFNVR-v0.3.0.zip` from the GitHub release.
+1. Download `MFNVR-v1.0.0.zip` from the GitHub release.
 2. In Steam, right-click *My Friendly Neighborhood*, select **Manage > Browse local files**, and close the game.
 3. Extract the contents of the ZIP directly into the game's root folder. The `BepInEx` folder in the archive should end up beside `My Friendly Neighborhood.exe`.
 4. Select the OpenXR runtime you want to use:
@@ -50,3 +54,12 @@ To edit VR mods config hold L2 down for 2 seconds or press the VR Settings butto
 This project was developed entirely using AI code generation with Codex. None of the source code has been manually written or reviewed by a human. As a result, the code may contain bugs, security issues, performance problems, or other unintended behavior.
 
 Use this project at your own risk. Code reviews, bug reports, testing feedback, and pull requests are welcome to help improve its quality and reliability.
+
+
+
+<img width="700" height="540" alt="image" src="https://github.com/user-attachments/assets/6b563b0d-3c79-45c3-a753-315a75af1b34" />
+
+
+<img width="768" height="768" alt="MetaScreenshot1786835060" src="https://github.com/user-attachments/assets/0d7db472-f877-4123-8fed-ab5d9fcfea8e" />
+
+<img width="768" height="768" alt="MetaScreenshot1786835221" src="https://github.com/user-attachments/assets/62a2ee13-7977-420f-bac3-97d6e5a7abd4" />
