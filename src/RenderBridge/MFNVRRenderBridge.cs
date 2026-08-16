@@ -29,6 +29,14 @@ namespace MFNVRBridge
         private static bool flatScreensOnlyForMainPauseAndFiles = true;
         private static bool interactionCameraMovement;
         private static float playerHeightOffset;
+        private static float calibratedHeightOffset;
+        private static bool autoRecalibrateHeight;
+        private static bool pendingAutoHeightCalibration;
+        private static int autoHeightCalibrationFrame;
+        private static int heightCalibrationSceneHandle = int.MinValue;
+        private static float vanillaCameraCalibrationHeight;
+        private static float unshiftedEyeCalibrationHeight;
+        private static bool haveHeightCalibrationSample;
         private static bool physicalWeaponSwitching = true;
         private static bool menuPointerEnabled = true;
         // Keep the complete implementation compiled in, but gate it off until its
@@ -63,7 +71,7 @@ namespace MFNVRBridge
         private static int settingsMenuHoveredOption = -1;
         private static int settingsMenuDraggingOption = -1;
         private static bool settingsMenuCloseHovered;
-        private static readonly float[] settingsMenuValues = new float[20];
+        private static readonly float[] settingsMenuValues = new float[22];
         private static readonly System.Drawing.StringFormat SettingsCenteredFormat =
             new System.Drawing.StringFormat
             {
@@ -91,6 +99,7 @@ namespace MFNVRBridge
             public float Minimum;
             public float Maximum;
             public bool Logarithmic;
+            public bool Action;
         }
 
         private static readonly string[] SettingsMenuCategories =
@@ -119,7 +128,9 @@ namespace MFNVRBridge
             new SettingsMenuOption { Label = "Snap Turn Angle", Category = 3, Minimum = 15f, Maximum = 90f },
             new SettingsMenuOption { Label = "Smooth Turn Speed", Category = 3, Minimum = 30f, Maximum = 360f },
             new SettingsMenuOption { Label = "Physical Weapon Switching", Description = "Switch weapons with dominant-grip hip and shoulder holsters", Category = 4, Toggle = true },
-            new SettingsMenuOption { Label = "Player Height", Description = "Vertical height adjustment in metres", Category = 3, Minimum = -1f, Maximum = 1f }
+            new SettingsMenuOption { Label = "Player Height", Description = "Additional vertical adjustment in metres", Category = 4, Minimum = -5f, Maximum = 5f },
+            new SettingsMenuOption { Label = "Auto Recalibrate Height", Description = "Recalibrate once whenever gameplay loads", Category = 4, Toggle = true },
+            new SettingsMenuOption { Label = "Recalibrate Height", Description = "Use the current headset height as neutral standing height", Category = 4, Action = true }
         };
 
         private static readonly string[] SettingsMenuConfigSections =
@@ -127,7 +138,7 @@ namespace MFNVRBridge
             "Rendering", "Rendering", "Rendering", "Rendering",
             "Crosshair", "Crosshair", "Crosshair",
             "HUD", "HUD", "HUD", "MainMenu", "MainMenu", "UI", "UI",
-            "Camera", "Turning", "Turning", "Turning", "Controls", "Player"
+            "Camera", "Turning", "Turning", "Turning", "Controls", "Player", "Player", ""
         };
 
         private static readonly string[] SettingsMenuConfigKeys =
@@ -137,13 +148,13 @@ namespace MFNVRBridge
             "Distance", "Scale", "HeightOffset", "Distance", "Scale",
             "UIScreens", "MenuPointer", "InteractionCameraMovement",
             "SmoothTurning", "SnapAngle", "SmoothTurnSpeed",
-            "PhysicalWeaponSwitching", "HeightOffset"
+            "PhysicalWeaponSwitching", "HeightOffset", "AutoRecalibrateHeight", ""
         };
 
         private static readonly float[] SettingsMenuDefaults =
         {
             1f, 0f, 0.7f, 80f, 1f, 1.08f, 0.011f, 1000f, 0.78f, 0f,
-            10f, 1f, 1f, 1f, 0f, 0f, 30f, 90f, 1f, 0f
+            10f, 1f, 1f, 1f, 0f, 0f, 30f, 90f, 1f, 0f, 0f, 0f
         };
 
         private static Camera menuSource;
@@ -524,8 +535,41 @@ namespace MFNVRBridge
 
         public static void ApplyPlayerHeightSettings(float heightOffset)
         {
-            playerHeightOffset = Mathf.Clamp(heightOffset, -1f, 1f);
+            playerHeightOffset = Mathf.Clamp(heightOffset, -5f, 5f);
         }
+
+        public static void ApplyHeightCalibrationSettings(bool autoRecalibrate)
+        {
+            if (autoRecalibrate && !autoRecalibrateHeight)
+            {
+                pendingAutoHeightCalibration = true;
+                autoHeightCalibrationFrame = Time.frameCount + 5;
+            }
+            autoRecalibrateHeight = autoRecalibrate;
+        }
+
+        public static bool RecalibratePlayerHeight()
+        {
+            if (!haveHeightCalibrationSample)
+                return false;
+            var calibratedSliderValue = Mathf.Clamp(
+                vanillaCameraCalibrationHeight - unshiftedEyeCalibrationHeight,
+                -5f, 5f);
+            // Calibration is represented by the normal Player Height setting rather
+            // than a second hidden offset. This keeps the visible slider, saved CFG,
+            // and camera position in exact agreement.
+            calibratedHeightOffset = 0f;
+            playerHeightOffset = calibratedSliderValue;
+            pendingAutoHeightCalibration = false;
+            CommitCapturedSetting(19, calibratedSliderValue);
+            Debug.Log("MFNVR: Player Height slider recalibrated to vanilla camera; value=" +
+                      calibratedSliderValue.ToString("0.###") + "m, target=" +
+                      vanillaCameraCalibrationHeight.ToString("0.###") + "m.");
+            return true;
+        }
+
+        private static float EffectivePlayerHeightOffset =>
+            Mathf.Clamp(playerHeightOffset + calibratedHeightOffset, -5f, 5f);
 
         internal static void BeginInteractionCameraLock()
         {
@@ -978,11 +1022,11 @@ namespace MFNVRBridge
             if (!physicalInventoryActive && !uiModeActive && !IsCutsceneActive() &&
                 hasOrigin && useRig)
             {
-                lastGameplayRigPosition = rigPosition + Vector3.up * playerHeightOffset;
+                lastGameplayRigPosition = rigPosition + Vector3.up * EffectivePlayerHeightOffset;
                 lastGameplayRigRotation = rigRotation;
                 haveLastGameplayRig = true;
             }
-            motionRigPosition = rigPosition + Vector3.up * playerHeightOffset;
+            motionRigPosition = rigPosition + Vector3.up * EffectivePlayerHeightOffset;
             motionRigRotation = rigRotation;
             var menuPointerContext = IsNativeMenuPointerContext(player, inventory);
             motionContextValid = player != null && hasOrigin &&
@@ -6110,11 +6154,30 @@ namespace MFNVRBridge
             bool coreUsingComfortRig)
         {
             ApplyCutscenePositionFollow(source, left, right, coreUsingComfortRig);
-            if (coreUsingComfortRig && Mathf.Abs(playerHeightOffset) > 0.0001f)
+            if (coreUsingComfortRig)
             {
-                var heightShift = Vector3.up * playerHeightOffset;
-                left.transform.position += heightShift;
-                right.transform.position += heightShift;
+                vanillaCameraCalibrationHeight = source.transform.position.y;
+                unshiftedEyeCalibrationHeight =
+                    (left.transform.position.y + right.transform.position.y) * 0.5f;
+                haveHeightCalibrationSample = true;
+                var sceneHandle = UnityEngine.SceneManagement.SceneManager.GetActiveScene().handle;
+                if (sceneHandle != heightCalibrationSceneHandle)
+                {
+                    heightCalibrationSceneHandle = sceneHandle;
+                    calibratedHeightOffset = 0f;
+                    haveHeightCalibrationSample = true;
+                    pendingAutoHeightCalibration = autoRecalibrateHeight;
+                    autoHeightCalibrationFrame = Time.frameCount + 5;
+                }
+                if (pendingAutoHeightCalibration && Time.frameCount >= autoHeightCalibrationFrame)
+                    RecalibratePlayerHeight();
+                var effectiveHeight = EffectivePlayerHeightOffset;
+                if (Mathf.Abs(effectiveHeight) > 0.0001f)
+                {
+                    var heightShift = Vector3.up * effectiveHeight;
+                    left.transform.position += heightShift;
+                    right.transform.position += heightShift;
+                }
             }
             // Capture the exact Rift matrices and physical eye offsets before configuring
             // any head-locked overlay. This keeps overlay geometry undistorted after the
@@ -6617,6 +6680,11 @@ namespace MFNVRBridge
                             ? 0f : 1f;
                         CommitCapturedSetting(settingsMenuHoveredOption, value);
                     }
+                    else if (option.Action)
+                    {
+                        RecalibratePlayerHeight();
+                        settingsMenuTextureDirty = true;
+                    }
                     else
                     {
                         settingsMenuDraggingOption = settingsMenuHoveredOption;
@@ -6651,7 +6719,7 @@ namespace MFNVRBridge
             if (index < 0 || index >= SettingsMenuOptions.Length)
                 return;
             var option = SettingsMenuOptions[index];
-            if (option.Toggle)
+            if (option.Toggle || option.Action)
                 return;
             var normalized = Mathf.Clamp01((pointerX - 610f) / 590f);
             settingsMenuValues[index] = option.Logarithmic
@@ -6855,6 +6923,7 @@ namespace MFNVRBridge
             ApplyInteractionCameraSettings(settingsMenuValues[14] >= 0.5f);
             ApplyPhysicalWeaponSwitchingSettings(settingsMenuValues[18] >= 0.5f);
             ApplyPlayerHeightSettings(settingsMenuValues[19]);
+            ApplyHeightCalibrationSettings(settingsMenuValues[20] >= 0.5f);
             ApplyLeftHandedSettings(false);
         }
 
@@ -7454,6 +7523,21 @@ namespace MFNVRBridge
                         graphics.DrawString("X", valueFont, foreground,
                             new System.Drawing.RectangleF(1240, y + 14, 48, 48),
                             SettingsCenteredFormat);
+                }
+                return;
+            }
+
+            if (option.Action)
+            {
+                using (var button = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.FromArgb(255, 46, 112, 194)))
+                using (var foreground = new System.Drawing.SolidBrush(
+                           System.Drawing.Color.White))
+                {
+                    graphics.FillRectangle(button, 1020, y + 12, 270, 52);
+                    graphics.DrawString("RECALIBRATE", valueFont, foreground,
+                        new System.Drawing.RectangleF(1020, y + 12, 270, 52),
+                        SettingsCenteredFormat);
                 }
                 return;
             }

@@ -44,6 +44,7 @@ namespace MFNVRConfig
         private ConfigEntry<bool> flatScreensOnlyForMainPauseAndFiles;
         private ConfigEntry<bool> interactionCameraMovement;
         private ConfigEntry<float> playerHeightOffset;
+        private ConfigEntry<bool> autoRecalibrateHeight;
         private ConfigEntry<bool> menuPointer;
         private ConfigEntry<bool> physicalWeaponSwitching;
         private ConfigEntry<bool> smoothTurning;
@@ -54,6 +55,7 @@ namespace MFNVRConfig
         private MethodInfo applyUiScreenSettings;
         private MethodInfo applyInteractionCameraSettings;
         private MethodInfo applyPlayerHeightSettings;
+        private MethodInfo applyHeightCalibrationSettings;
         private MethodInfo applyMenuPointerSettings;
         private MethodInfo applyPhysicalWeaponSwitchingSettings;
         private MethodInfo applyLeftHandedSettings;
@@ -169,7 +171,9 @@ namespace MFNVRConfig
                 "Allow MFN to move the VR camera during interaction menus. Cutscenes and toolbox views always retain their authored camera movement.");
             playerHeightOffset = settings.Bind("Player", "HeightOffset", 0f,
                 new ConfigDescription("Vertical player-height adjustment in metres. Positive values make the player taller and negative values make the player shorter.",
-                    new AcceptableValueRange<float>(-1f, 1f)));
+                    new AcceptableValueRange<float>(-5f, 5f)));
+            autoRecalibrateHeight = settings.Bind("Player", "AutoRecalibrateHeight", false,
+                "Automatically recalibrate the current headset height once whenever gameplay loads.");
             menuPointer = settings.Bind("UI", "MenuPointer", true,
                 "Show a tracked dominant-hand pointer in inventory, toolboxes, and interaction menus. The dominant trigger selects or picks up/places items; dominant-stick click rotates held inventory items.");
             physicalWeaponSwitching = settings.Bind("Controls", "PhysicalWeaponSwitching", true,
@@ -332,6 +336,8 @@ namespace MFNVRConfig
                     BindingFlags.Static | BindingFlags.Public);
             applyPlayerHeightSettings = applyPlayerHeightSettings ?? bridge?.GetMethod(
                 "ApplyPlayerHeightSettings", BindingFlags.Static | BindingFlags.Public);
+            applyHeightCalibrationSettings = applyHeightCalibrationSettings ?? bridge?.GetMethod(
+                "ApplyHeightCalibrationSettings", BindingFlags.Static | BindingFlags.Public);
             applyMenuPointerSettings = applyMenuPointerSettings ?? bridge?.GetMethod(
                 "ApplyMenuPointerSettings", BindingFlags.Static | BindingFlags.Public);
             applyPhysicalWeaponSwitchingSettings = applyPhysicalWeaponSwitchingSettings ??
@@ -342,6 +348,7 @@ namespace MFNVRConfig
             if (applyBridgeSettings == null || applyUiScreenSettings == null ||
                 applyInteractionCameraSettings == null ||
                 applyPlayerHeightSettings == null ||
+                applyHeightCalibrationSettings == null ||
                 applyMenuPointerSettings == null ||
                 applyPhysicalWeaponSwitchingSettings == null ||
                 applyLeftHandedSettings == null)
@@ -361,6 +368,7 @@ namespace MFNVRConfig
                 interactionCameraMovement.Value
             });
             applyPlayerHeightSettings.Invoke(null, new object[] { playerHeightOffset.Value });
+            applyHeightCalibrationSettings.Invoke(null, new object[] { autoRecalibrateHeight.Value });
             applyMenuPointerSettings.Invoke(null, new object[] { menuPointer.Value });
             applyPhysicalWeaponSwitchingSettings.Invoke(null, new object[]
             {
@@ -482,7 +490,7 @@ namespace MFNVRConfig
         public static bool GetVrSettingsMenuValues(float[] values)
         {
             var plugin = instance;
-            if (plugin == null || values == null || values.Length < 20)
+            if (plugin == null || values == null || values.Length < 21)
                 return false;
             // The captured menu is also the user's live config editor. Always refresh
             // from the real BepInEx config file when the menu opens so hand edits made
@@ -515,6 +523,7 @@ namespace MFNVRConfig
             values[17] = plugin.smoothSpeed.Value;
             values[18] = plugin.physicalWeaponSwitching.Value ? 1f : 0f;
             values[19] = plugin.playerHeightOffset.Value;
+            values[20] = plugin.autoRecalibrateHeight.Value ? 1f : 0f;
             return true;
         }
 
@@ -545,7 +554,8 @@ namespace MFNVRConfig
                 case 16: entry = plugin.snapAngle; entry.BoxedValue = Mathf.Clamp(value, 15f, 90f); break;
                 case 17: entry = plugin.smoothSpeed; entry.BoxedValue = Mathf.Clamp(value, 30f, 360f); break;
                 case 18: entry = plugin.physicalWeaponSwitching; entry.BoxedValue = value >= 0.5f; break;
-                case 19: entry = plugin.playerHeightOffset; entry.BoxedValue = Mathf.Clamp(value, -1f, 1f); break;
+                case 19: entry = plugin.playerHeightOffset; entry.BoxedValue = Mathf.Clamp(value, -5f, 5f); break;
+                case 20: entry = plugin.autoRecalibrateHeight; entry.BoxedValue = value >= 0.5f; break;
                 default: return false;
             }
             plugin.CommitExternalSettingsChange(entry);
@@ -857,12 +867,13 @@ namespace MFNVRConfig
             AddVrToggle(2, "Menu Pointer", menuPointer);
 
             AddVrToggle(3, "Interaction Camera Movement", interactionCameraMovement);
-            AddVrSlider(3, "Player Height", playerHeightOffset, -1f, 1f);
             AddVrToggle(3, "Smooth Turning", smoothTurning);
             AddVrSlider(3, "Snap Turn Angle", snapAngle, 15f, 90f);
             AddVrSlider(3, "Smooth Turn Speed", smoothSpeed, 30f, 360f);
 
             AddVrToggle(4, "Physical Weapon Switching", physicalWeaponSwitching);
+            AddVrSlider(4, "Player Height", playerHeightOffset, -5f, 5f);
+            AddVrToggle(4, "Auto Recalibrate Height", autoRecalibrateHeight);
             EnsureVrSettingsPointer();
             foreach (var child in vrSettingsRoot.GetComponentsInChildren<Transform>(true))
                 child.gameObject.layer = 31;

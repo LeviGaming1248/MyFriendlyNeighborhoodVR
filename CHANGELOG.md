@@ -1,7 +1,7 @@
 # MFNVR v1.0.0 — 2026-08-15
 MFNVR's first full release.
 
-- Added a option to adjust player height
+- Added a option to adjust player height and a button to recalibrate it.
 - Added a config menu by holding L3 for 2 seconds.
 - Performance improvements.
 - The pointer now shows up in the main menu (when enabled)
