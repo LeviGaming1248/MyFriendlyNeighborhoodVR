@@ -24,7 +24,7 @@ A VR mod for **My Friendly Neighborhood** that brings full 6DOF head tracking an
 
 
 # Config file
-To edit VR mods config hold L2 down for 2 seconds or press the VR Settings button in the main or pause menus to open up a menu that lets you edit settings to your liking.
+To edit the mods config hold L2 down for 2 seconds or press the VR Settings button in the main or pause menus to open up a menu that lets you edit settings to your liking.
 
 
 | Current Features |
